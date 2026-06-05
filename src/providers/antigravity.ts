@@ -189,7 +189,12 @@ export class AntigravityProvider extends BaseProvider {
           code_challenge_method: CodeChallengeMethod.S256,
         });
 
-        exec(`open "${authUrl}"`);
+        const startCommand = os.platform() === "darwin" ? "open" : os.platform() === "win32" ? "start" : "xdg-open";
+        if (os.platform() === "win32") {
+          exec(`cmd /c start "" "${authUrl}"`);
+        } else {
+          exec(`${startCommand} "${authUrl}"`);
+        }
 
         setTimeout(() => {
           if (this.pendingLogin && this.pendingLogin.server === server) {

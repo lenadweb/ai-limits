@@ -441,10 +441,12 @@ export class ClaudeProvider extends BaseProvider {
 
   private refreshTokenViaCLI(): Promise<boolean> {
     return new Promise((resolve) => {
-      const claudePath = join(homedir(), ".local", "bin", "claude");
+      const isWin = platform() === "win32";
+      const claudePath = isWin ? "claude" : join(homedir(), ".local", "bin", "claude");
       const proc = spawn(claudePath, [], {
         stdio: "ignore",
-        detached: true,
+        detached: !isWin,
+        shell: isWin,
       });
 
       proc.on("error", () => {
@@ -453,7 +455,7 @@ export class ClaudeProvider extends BaseProvider {
 
       setTimeout(() => {
         try {
-          proc.kill("SIGTERM");
+          proc.kill();
         } catch { }
         resolve(true);
       }, 10000);
