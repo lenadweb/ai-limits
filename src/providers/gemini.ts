@@ -3,7 +3,8 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName } from "../types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, GeminiRawResponse, UsageSummary } from "../types.js";
+import { buildSummary } from "../utils.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com/v1internal";
 const OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
@@ -32,18 +33,22 @@ export class GeminiProvider extends BaseProvider {
   private client: OAuth2Client;
   private credentialsPath: string;
   private projectId: string | null = null;
+  private clientId: string | undefined;
+  private clientSecret: string | undefined;
   private isInitialized = false;
   private lastFetch: number = 0;
   private cache: StandardUsageResult | null = null;
   private readonly CACHE_TTL_MS = 60000;
 
-  constructor(options?: { credentialsPath?: string; projectId?: string }) {
+  constructor(options?: { credentialsPath?: string; projectId?: string; clientId?: string; clientSecret?: string }) {
     super();
     this.credentialsPath = options?.credentialsPath || path.join(os.homedir(), ".gemini", "oauth_creds.json");
     this.projectId = options?.projectId || null;
+    this.clientId = options?.clientId || process.env.GEMINI_CLIENT_ID || OAUTH_CLIENT_ID;
+    this.clientSecret = options?.clientSecret || process.env.GEMINI_CLIENT_SECRET || OAUTH_CLIENT_SECRET;
     this.client = new OAuth2Client({
-      clientId: OAUTH_CLIENT_ID,
-      clientSecret: OAUTH_CLIENT_SECRET,
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
     });
   }
 
@@ -135,6 +140,19 @@ export class GeminiProvider extends BaseProvider {
         error: { code, message },
       };
     }
+  }
+
+  async fetchRawUsage(): Promise<GeminiRawResponse> {
+    await this.initialize();
+    const projId = await this.resolveProjectId();
+    return await this.apiPost<GeminiRawResponse>("retrieveUserQuota", {
+      project: projId,
+    });
+  }
+
+  async fetchSummary(): Promise<UsageSummary> {
+    const usage = await this.fetchUsage();
+    return buildSummary(usage);
   }
 
   private async initialize() {

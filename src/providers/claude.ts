@@ -3,7 +3,8 @@ import { readFile, stat } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ProviderName } from "../types.js";
+import { StandardUsageResult, ProviderName, ClaudeRawResponse, UsageSummary } from "../types.js";
+import { buildSummary } from "../utils.js";
 
 interface ClaudeCredentials {
   claudeAiOauth?: {
@@ -252,6 +253,23 @@ export class ClaudeProvider extends BaseProvider {
       overallResetTime,
       perModel,
     };
+  }
+
+  async fetchRawUsage(): Promise<ClaudeRawResponse> {
+    const token = await this.getCredentials();
+    if (!token) {
+      throw new Error("Authentication credentials missing");
+    }
+    const response = await this.fetchUsageEndpoint(token);
+    if (!response || !response.ok) {
+      throw new Error(`Anthropic API returned status ${response?.status || "unknown"}`);
+    }
+    return (await response.json()) as ClaudeRawResponse;
+  }
+
+  async fetchSummary(): Promise<UsageSummary> {
+    const usage = await this.fetchUsage();
+    return buildSummary(usage);
   }
 
   private async getCredentials(): Promise<string | null> {

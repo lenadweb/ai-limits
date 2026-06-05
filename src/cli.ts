@@ -92,7 +92,13 @@ program
     try {
       if (providerArg) {
         const name = providerArg.toLowerCase() as ProviderName;
-        const valid: ProviderName[] = ["antigravity", "claude", "chatgpt", "gemini", "minimax"];
+        const valid: ProviderName[] = [
+          ProviderName.Antigravity,
+          ProviderName.Claude,
+          ProviderName.ChatGpt,
+          ProviderName.Gemini,
+          ProviderName.MiniMax,
+        ];
         if (!valid.includes(name)) {
           console.error(pc.red(`Error: Invalid provider '${providerArg}'. Valid options: ${valid.join(", ")}`));
           process.exit(1);
@@ -125,7 +131,7 @@ program
     }
 
     console.log(pc.cyan("Starting OAuth login flow for Antigravity. Opening browser..."));
-    const provider = client.getProvider("antigravity") as AntigravityProvider;
+    const provider = client.getProvider(ProviderName.Antigravity) as AntigravityProvider;
     try {
       const email = await provider.login();
       console.log(pc.green(`Successfully authenticated as: ${email}`));
@@ -146,7 +152,7 @@ program
       process.exit(1);
     }
 
-    const provider = client.getProvider("antigravity") as AntigravityProvider;
+    const provider = client.getProvider(ProviderName.Antigravity) as AntigravityProvider;
     try {
       await provider.logout();
       console.log(pc.green("Successfully logged out and cleared local OAuth tokens."));

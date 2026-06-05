@@ -3,7 +3,8 @@ import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName } from "../types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ChatGptRawResponse, UsageSummary } from "../types.js";
+import { buildSummary } from "../utils.js";
 
 interface CodexAuthData {
   tokens?: {
@@ -141,6 +142,31 @@ export class ChatGptProvider extends BaseProvider {
         error: { code: "CONN", message: "Conn Error" },
       };
     }
+  }
+
+  async fetchRawUsage(): Promise<ChatGptRawResponse> {
+    const auth = await this.readAuthTokens();
+    if (!auth) {
+      throw new Error("Authentication credentials missing");
+    }
+    const response = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${auth.accessToken}`,
+        "ChatGPT-Account-Id": auth.accountId,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`ChatGPT API returned status ${response.status}`);
+    }
+    return (await response.json()) as ChatGptRawResponse;
+  }
+
+  async fetchSummary(): Promise<UsageSummary> {
+    const usage = await this.fetchUsage();
+    return buildSummary(usage);
   }
 
   private async readAuthTokens(): Promise<{ accessToken: string; accountId: string } | null> {

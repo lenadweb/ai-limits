@@ -7,7 +7,8 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName } from "../types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, AntigravityRawResponse, UsageSummary } from "../types.js";
+import { buildSummary } from "../utils.js";
 
 const CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com/v1internal";
 const OAUTH_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
@@ -56,6 +57,8 @@ export class AntigravityProvider extends BaseProvider {
   readonly name = ProviderName.Antigravity;
   private client: OAuth2Client;
   private tokenPath: string;
+  private clientId: string | undefined;
+  private clientSecret: string | undefined;
   private isInitialized = false;
   private email: string | null = null;
   private pendingLogin: {
@@ -67,12 +70,14 @@ export class AntigravityProvider extends BaseProvider {
     reject: (err: Error) => void;
   } | null = null;
 
-  constructor(options?: { tokenPath?: string }) {
+  constructor(options?: { tokenPath?: string; clientId?: string; clientSecret?: string }) {
     super();
     this.tokenPath = options?.tokenPath || path.join(os.homedir(), ".limits-streamdeck", "antigravity_oauth.json");
+    this.clientId = options?.clientId || process.env.ANTIGRAVITY_CLIENT_ID || OAUTH_CLIENT_ID;
+    this.clientSecret = options?.clientSecret || process.env.ANTIGRAVITY_CLIENT_SECRET || OAUTH_CLIENT_SECRET;
     this.client = new OAuth2Client({
-      clientId: OAUTH_CLIENT_ID,
-      clientSecret: OAUTH_CLIENT_SECRET,
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
     });
   }
 
@@ -93,8 +98,8 @@ export class AntigravityProvider extends BaseProvider {
     this.isInitialized = false;
     this.email = null;
     this.client = new OAuth2Client({
-      clientId: OAUTH_CLIENT_ID,
-      clientSecret: OAUTH_CLIENT_SECRET,
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
     });
     try {
       await fs.unlink(this.tokenPath);
@@ -308,6 +313,28 @@ export class AntigravityProvider extends BaseProvider {
     };
   }
 
+  async fetchRawUsage(): Promise<AntigravityRawResponse> {
+    await this.initialize();
+    try {
+      const buckets = await this.apiPost<RetrieveUserQuotaResponse>("retrieveUserQuota", {});
+      const models = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
+      return {
+        buckets: buckets.buckets,
+        models: models.models,
+      };
+    } catch {
+      const models = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
+      return {
+        models: models.models,
+      };
+    }
+  }
+
+  async fetchSummary(): Promise<UsageSummary> {
+    const usage = await this.fetchUsage();
+    return buildSummary(usage);
+  }
+
   private async fetchModelDisplayNames(): Promise<Record<string, string>> {
     const labels: Record<string, string> = {};
     try {
@@ -384,8 +411,8 @@ export class AntigravityProvider extends BaseProvider {
   private async exchangeCode(code: string, codeVerifier: string, redirectUri: string): Promise<StoredToken> {
     const params = new URLSearchParams({
       code,
-      client_id: OAUTH_CLIENT_ID,
-      client_secret: OAUTH_CLIENT_SECRET,
+      client_id: this.clientId || "",
+      client_secret: this.clientSecret || "",
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
       code_verifier: codeVerifier,

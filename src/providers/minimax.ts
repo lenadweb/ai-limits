@@ -1,5 +1,6 @@
 import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName } from "../types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse, UsageSummary } from "../types.js";
+import { buildSummary } from "../utils.js";
 
 interface MiniMaxModelRemains {
   start_time: number;
@@ -139,5 +140,27 @@ export class MiniMaxProvider extends BaseProvider {
         error: { code: "CONN", message: "Conn Error" },
       };
     }
+  }
+
+  async fetchRawUsage(): Promise<MiniMaxRawResponse> {
+    if (!this.apiKey) {
+      throw new Error("Authentication credentials missing");
+    }
+    const response = await fetch("https://platform.minimax.io/v1/api/openplatform/coding_plan/remains", {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${this.apiKey}`,
+        "Accept": "application/json",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`MiniMax API returned status ${response.status}`);
+    }
+    return (await response.json()) as MiniMaxRawResponse;
+  }
+
+  async fetchSummary(): Promise<UsageSummary> {
+    const usage = await this.fetchUsage();
+    return buildSummary(usage);
   }
 }
