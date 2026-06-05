@@ -1,0 +1,243 @@
+import { OAuth2Client } from "google-auth-library";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+import { BaseProvider } from "./base.js";
+import { StandardUsageResult, ModelUsage, ProviderName } from "../types.js";
+
+const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com/v1internal";
+const OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
+const OAUTH_CLIENT_SECRET = "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";
+
+export type QuotaBucket = {
+  resetTime: string;
+  tokenType: string;
+  modelId: string;
+  remainingFraction: number;
+  remainingAmount?: string;
+};
+
+export type QuotaResponse = {
+  buckets?: QuotaBucket[];
+};
+
+interface LoadCodeAssistResponse {
+  currentTier?: { id?: string; name?: string } | null;
+  allowedTiers?: Array<{ id?: string; name?: string; isDefault?: boolean }> | null;
+  cloudaicompanionProject?: string | null;
+}
+
+export class GeminiProvider extends BaseProvider {
+  readonly name = ProviderName.Gemini;
+  private client: OAuth2Client;
+  private credentialsPath: string;
+  private projectId: string | null = null;
+  private isInitialized = false;
+  private lastFetch: number = 0;
+  private cache: StandardUsageResult | null = null;
+  private readonly CACHE_TTL_MS = 60000;
+
+  constructor(options?: { credentialsPath?: string; projectId?: string }) {
+    super();
+    this.credentialsPath = options?.credentialsPath || path.join(os.homedir(), ".gemini", "oauth_creds.json");
+    this.projectId = options?.projectId || null;
+    this.client = new OAuth2Client({
+      clientId: OAUTH_CLIENT_ID,
+      clientSecret: OAUTH_CLIENT_SECRET,
+    });
+  }
+
+  async fetchUsage(): Promise<StandardUsageResult> {
+    const now = Date.now();
+    if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
+      return this.cache;
+    }
+
+    try {
+      await this.initialize();
+      const projId = await this.resolveProjectId();
+      const data = await this.apiPost<QuotaResponse>("retrieveUserQuota", {
+        project: projId,
+      });
+
+      const perModel: Record<string, ModelUsage> = {};
+
+      if (!data.buckets || data.buckets.length === 0) {
+        const result: StandardUsageResult = {
+          provider: this.name,
+          overallUsagePercent: 0,
+          overallResetTime: null,
+          perModel,
+        };
+        this.cache = result;
+        this.lastFetch = now;
+        return result;
+      }
+
+      for (const bucket of data.buckets) {
+        if (!bucket.modelId || bucket.remainingFraction == null) continue;
+        if (bucket.modelId.endsWith("_vertex")) continue;
+
+        const usage = Math.round((1 - bucket.remainingFraction) * 100);
+        let remaining = 0;
+        let limit = 0;
+
+        if (bucket.remainingAmount) {
+          remaining = parseInt(bucket.remainingAmount, 10);
+          limit = bucket.remainingFraction > 0 ? Math.round(remaining / bucket.remainingFraction) : 0;
+        }
+
+        perModel[bucket.modelId] = {
+          usagePercent: usage,
+          remainingAmount: remaining || undefined,
+          limitAmount: limit || undefined,
+          resetTime: bucket.resetTime || null,
+          displayName: bucket.modelId,
+        };
+      }
+
+      const lowestFraction = Math.min(...data.buckets.map((b) => b.remainingFraction ?? 1));
+      const overallUsagePercent = Math.min(Math.max(Math.round((1 - lowestFraction) * 100), 0), 100);
+
+      const mostConstrained = data.buckets.reduce((prev, curr) =>
+        (curr.remainingFraction ?? 1) < (prev.remainingFraction ?? 1) ? curr : prev
+      );
+      const overallResetTime = mostConstrained.resetTime || null;
+
+      const result: StandardUsageResult = {
+        provider: this.name,
+        overallUsagePercent,
+        overallResetTime,
+        perModel,
+      };
+
+      this.cache = result;
+      this.lastFetch = now;
+      return result;
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      let code: string | number = "API";
+      let message = "API Error";
+      if (msg.includes("credentials") || msg.includes("ENOENT") || msg.includes("token") || msg.includes("401") || msg.includes("403")) {
+        code = "AUTH";
+        message = "Auth Required";
+      } else if (msg.includes("429")) {
+        code = 429;
+        message = "Rate Limit";
+      } else if (msg.includes("fetch") || msg.includes("CONN") || msg.includes("Network")) {
+        code = "CONN";
+        message = "Conn Error";
+      }
+      return {
+        provider: this.name,
+        overallUsagePercent: null,
+        overallResetTime: null,
+        error: { code, message },
+      };
+    }
+  }
+
+  private async initialize() {
+    if (this.isInitialized) return;
+    const credsStr = await fs.readFile(this.credentialsPath, "utf-8");
+    const creds = JSON.parse(credsStr);
+    this.client.setCredentials(creds);
+    this.isInitialized = true;
+  }
+
+  private async reloadCredentials(): Promise<void> {
+    this.isInitialized = false;
+    await this.initialize();
+  }
+
+  private async getToken(): Promise<string> {
+    const { token } = await this.client.getAccessToken();
+    if (!token) {
+      throw new Error("Failed to obtain access token");
+    }
+    const creds = this.client.credentials;
+    if (creds.access_token) {
+      await fs.writeFile(this.credentialsPath, JSON.stringify(creds, null, 2));
+    }
+    return token;
+  }
+
+  private async apiPost<T>(method: string, body: object): Promise<T> {
+    const token = await this.getToken();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch(`${CODE_ASSIST_ENDPOINT}:${method}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (response.status === 401) {
+        await this.reloadCredentials();
+        const newToken = await this.getToken();
+        const retryController = new AbortController();
+        const retryTimeout = setTimeout(() => retryController.abort(), 10000);
+
+        const retry = await fetch(`${CODE_ASSIST_ENDPOINT}:${method}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${newToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: retryController.signal,
+        });
+
+        clearTimeout(retryTimeout);
+
+        if (!retry.ok) {
+          throw new Error(`Google API ${method} returned ${retry.status}`);
+        }
+        return (await retry.json()) as T;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Google API ${method} returned ${response.status}`);
+      }
+      return (await response.json()) as T;
+    } catch (e) {
+      clearTimeout(timeout);
+      throw e;
+    }
+  }
+
+  private async resolveProjectId(): Promise<string> {
+    if (this.projectId) {
+      return this.projectId;
+    }
+
+    const envProject = process.env["GOOGLE_CLOUD_PROJECT"] || process.env["GOOGLE_CLOUD_PROJECT_ID"];
+    if (envProject) {
+      this.projectId = envProject;
+      return envProject;
+    }
+
+    const res = await this.apiPost<LoadCodeAssistResponse>("loadCodeAssist", {
+      metadata: {
+        ideType: "IDE_UNSPECIFIED",
+        platform: "PLATFORM_UNSPECIFIED",
+        pluginType: "GEMINI",
+      },
+    });
+
+    if (res.cloudaicompanionProject) {
+      this.projectId = res.cloudaicompanionProject;
+      return res.cloudaicompanionProject;
+    }
+
+    throw new Error("Could not resolve project ID");
+  }
+}

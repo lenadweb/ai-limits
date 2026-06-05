@@ -1,0 +1,44 @@
+{
+  "name": "ai-limits",
+  "version": "1.0.0",
+  "description": "CLI and TypeScript SDK to access AI agent limits and usage stats across multiple providers.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "ai-limits": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts src/cli.ts --format esm --dts --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "cli-table3": "^0.6.5",
+    "commander": "^12.1.0",
+    "google-auth-library": "^9.15.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "tsup": "^8.1.0",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "ai",
+    "limits",
+    "copilot",
+    "gemini",
+    "claude",
+    "chatgpt",
+    "minimax",
+    "cli",
+    "sdk"
+  ],
+  "author": "",
+  "license": "MIT"
+}
