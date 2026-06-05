@@ -47,7 +47,8 @@ export class ClaudeProvider extends BaseProvider {
 
   constructor(options?: { credentialsPath?: string; useKeychain?: boolean }) {
     super();
-    this.credentialsPath = options?.credentialsPath || join(homedir(), ".claude", ".credentials.json");
+    const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    this.credentialsPath = options?.credentialsPath || join(configDir, ".credentials.json");
     this.useKeychain = options?.useKeychain ?? true;
   }
 

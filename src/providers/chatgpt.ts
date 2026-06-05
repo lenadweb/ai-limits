@@ -36,7 +36,8 @@ export class ChatGptProvider extends BaseProvider {
 
   constructor(options?: { authPath?: string }) {
     super();
-    this.authPath = options?.authPath || join(homedir(), ".codex", "auth.json");
+    const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
+    this.authPath = options?.authPath || join(codexHome, "auth.json");
   }
 
   async fetchUsage(): Promise<StandardUsageResult> {
