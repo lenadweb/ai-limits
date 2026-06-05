@@ -1,26 +1,46 @@
 {
-  "name": "ai-limits",
+  "name": "@lenadweb/ai-limits",
   "version": "1.0.0",
   "description": "CLI and TypeScript SDK to access AI agent limits and usage stats across multiple providers.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "bin": {
     "ai-limits": "./dist/cli.js"
   },
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
     "dev": "tsup src/index.ts src/cli.ts --format esm --dts --watch",
     "prepublishOnly": "npm run build"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lenadweb/ai-limits.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lenadweb/ai-limits/issues"
+  },
+  "homepage": "https://github.com/lenadweb/ai-limits#readme",
   "dependencies": {
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
-    "google-auth-library": "^9.15.0",
+    "google-auth-library": "^10.7.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
@@ -39,6 +59,6 @@
     "cli",
     "sdk"
   ],
-  "author": "",
+  "author": "lenadweb <lenadweber@gmail.com>",
   "license": "MIT"
 }

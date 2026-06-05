@@ -1,4 +1,4 @@
-# ai-limits
+# @lenadweb/ai-limits
 
 An enterprise-grade CLI and TypeScript/JavaScript SDK to fetch and monitor usage limits and quotas across multiple AI coding assistants and agent providers.
 
@@ -12,13 +12,13 @@ Supports:
 ## Installation
 
 ```bash
-npm install -g ai-limits
+npm install -g @lenadweb/ai-limits
 ```
 
 Or install locally in your project:
 
 ```bash
-npm install ai-limits
+npm install @lenadweb/ai-limits
 ```
 
 ## CLI Usage
@@ -54,7 +54,7 @@ ai-limits logout antigravity
 ## Programmatic Library Usage
 
 ```typescript
-import { LimitsClient } from "ai-limits";
+import { LimitsClient } from "@lenadweb/ai-limits";
 
 const client = new LimitsClient();
 
@@ -70,7 +70,7 @@ console.log(claudeUsage);
 ### Custom Client Configurations
 
 ```typescript
-import { LimitsClient } from "ai-limits";
+import { LimitsClient } from "@lenadweb/ai-limits";
 
 const client = new LimitsClient({
   antigravity: {
