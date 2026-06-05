@@ -1,4 +1,17 @@
-import { StandardUsageResult, UsageSummary } from "@/types.js";
+import { StandardUsageResult, UsageSummary, Logger, LoggerOption } from "@/types.js";
+
+export const consoleLogger: Logger = {
+  log: (message: string) => console.log(message),
+  error: (message: string) => console.error(message),
+};
+
+export function resolveLogger(logger?: LoggerOption): Logger {
+  if (!logger) return consoleLogger;
+  if (typeof logger === "function") {
+    return { log: logger, error: logger };
+  }
+  return logger;
+}
 
 export function formatResetTime(resetStr: string | null): string {
   if (!resetStr) return "-";

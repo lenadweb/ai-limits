@@ -35,7 +35,17 @@ export interface UsageSummary {
   formattedText: string;
 }
 
+export type LogFunction = (message: string) => void;
+
+export interface Logger {
+  log: LogFunction;
+  error: LogFunction;
+}
+
+export type LoggerOption = LogFunction | Logger;
+
 export interface LimitsClientOptions {
+  logger?: LoggerOption;
   antigravity?: {
     tokenPath?: string;
     clientId?: string;
