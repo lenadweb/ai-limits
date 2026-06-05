@@ -43,11 +43,13 @@ export class ChatGptProvider extends BaseProvider {
   async fetchUsage(): Promise<StandardUsageResult> {
     const now = Date.now();
     if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
+      this.debug("Returning cached usage");
       return this.cache;
     }
 
     const auth = await this.readAuthTokens();
     if (!auth) {
+      this.debug(`No auth tokens at ${this.authPath}, returning auth error`);
       return {
         provider: this.name,
         overallUsagePercent: null,
@@ -57,6 +59,7 @@ export class ChatGptProvider extends BaseProvider {
     }
 
     try {
+      this.debug("Fetching usage from ChatGPT API");
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -73,7 +76,10 @@ export class ChatGptProvider extends BaseProvider {
 
       clearTimeout(timeout);
 
+      this.debug(`Response status ${response.status}`);
+
       if (!response.ok) {
+        this.logger.error(`[${this.name}] Request failed with status ${response.status}`);
         return {
           provider: this.name,
           overallUsagePercent: null,
@@ -134,8 +140,10 @@ export class ChatGptProvider extends BaseProvider {
 
       this.cache = result;
       this.lastFetch = now;
+      this.debug(`Usage fetched: ${overallUsagePercent ?? "n/a"}% used`);
       return result;
-    } catch {
+    } catch (err: any) {
+      this.logger.error(`[${this.name}] Connection error: ${err?.message || err}`);
       return {
         provider: this.name,
         overallUsagePercent: null,

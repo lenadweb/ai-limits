@@ -41,10 +41,12 @@ export class MiniMaxProvider extends BaseProvider {
   async fetchUsage(): Promise<StandardUsageResult> {
     const now = Date.now();
     if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
+      this.debug("Returning cached usage");
       return this.cache;
     }
 
     if (!this.apiKey) {
+      this.debug("No API key configured, returning auth error");
       return {
         provider: this.name,
         overallUsagePercent: null,
@@ -54,6 +56,7 @@ export class MiniMaxProvider extends BaseProvider {
     }
 
     try {
+      this.debug("Fetching usage from MiniMax API");
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -68,7 +71,10 @@ export class MiniMaxProvider extends BaseProvider {
 
       clearTimeout(timeout);
 
+      this.debug(`Response status ${response.status}`);
+
       if (!response.ok) {
+        this.logger.error(`[${this.name}] Request failed with status ${response.status}`);
         return {
           provider: this.name,
           overallUsagePercent: null,
@@ -131,8 +137,10 @@ export class MiniMaxProvider extends BaseProvider {
 
       this.cache = result;
       this.lastFetch = now;
+      this.debug(`Usage fetched: ${overallUsagePercent}% used`);
       return result;
-    } catch {
+    } catch (err: any) {
+      this.logger.error(`[${this.name}] Connection error: ${err?.message || err}`);
       return {
         provider: this.name,
         overallUsagePercent: null,

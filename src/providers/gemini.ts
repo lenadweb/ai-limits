@@ -55,12 +55,15 @@ export class GeminiProvider extends BaseProvider {
   async fetchUsage(): Promise<StandardUsageResult> {
     const now = Date.now();
     if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
+      this.debug("Returning cached usage");
       return this.cache;
     }
 
     try {
+      this.debug("Fetching usage from Gemini Code Assist API");
       await this.initialize();
       const projId = await this.resolveProjectId();
+      this.debug(`Resolved project ${projId}`);
       const data = await this.apiPost<QuotaResponse>("retrieveUserQuota", {
         project: projId,
       });
@@ -118,9 +121,11 @@ export class GeminiProvider extends BaseProvider {
 
       this.cache = result;
       this.lastFetch = now;
+      this.debug(`Usage fetched: ${overallUsagePercent}% used`);
       return result;
     } catch (err: any) {
       const msg = String(err?.message || err);
+      this.logger.error(`[${this.name}] Fetch failed: ${msg}`);
       let code: string | number = "API";
       let message = "API Error";
       if (msg.includes("credentials") || msg.includes("ENOENT") || msg.includes("token") || msg.includes("401") || msg.includes("403")) {

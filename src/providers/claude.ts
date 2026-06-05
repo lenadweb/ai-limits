@@ -64,11 +64,13 @@ export class ClaudeProvider extends BaseProvider {
     }
 
     if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
+      this.debug("Returning cached usage");
       return this.cache;
     }
 
     const token = await this.getCredentials();
     if (!token) {
+      this.debug("No credentials, returning auth error");
       return {
         provider: this.name,
         overallUsagePercent: null,
@@ -78,6 +80,7 @@ export class ClaudeProvider extends BaseProvider {
     }
 
     try {
+      this.debug("Fetching usage from Claude API");
       const response = await this.fetchWithRetry(token);
       if (!response) {
         return {
@@ -127,8 +130,10 @@ export class ClaudeProvider extends BaseProvider {
       this.lastFetch = now;
       this.consecutive429Count = 0;
       this.cooldownUntil = 0;
+      this.debug(`Usage fetched: ${usage.overallUsagePercent ?? "n/a"}% used`);
       return usage;
-    } catch {
+    } catch (err: any) {
+      this.logger.error(`[${this.name}] Fetch failed: ${err?.message || err}`);
       return {
         provider: this.name,
         overallUsagePercent: null,

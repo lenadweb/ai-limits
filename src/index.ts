@@ -1,4 +1,5 @@
-import { ProviderName, LimitsClientOptions, StandardUsageResult, UsageSummary } from "@/types.js";
+import { ProviderName, LimitsClientOptions, StandardUsageResult, UsageSummary, Logger } from "@/types.js";
+import { resolveLogger } from "@/utils.js";
 import { AntigravityProvider } from "@/providers/antigravity.js";
 import { ClaudeProvider } from "@/providers/claude.js";
 import { ChatGptProvider } from "@/providers/chatgpt.js";
@@ -18,7 +19,10 @@ export { MiniMaxProvider };
 export class LimitsClient {
   private providers: Record<ProviderName, BaseProvider>;
 
+  readonly logger: Logger;
+
   constructor(options?: LimitsClientOptions) {
+    this.logger = resolveLogger(options?.logger);
     this.providers = {
       [ProviderName.Antigravity]: new AntigravityProvider(options?.antigravity),
       [ProviderName.Claude]: new ClaudeProvider(options?.claude),
@@ -26,6 +30,9 @@ export class LimitsClient {
       [ProviderName.Gemini]: new GeminiProvider(options?.gemini),
       [ProviderName.MiniMax]: new MiniMaxProvider(options?.minimax),
     };
+    for (const provider of Object.values(this.providers)) {
+      provider.setLogger(this.logger);
+    }
   }
 
   getProvider<T extends BaseProvider>(name: ProviderName): T {
@@ -66,6 +73,7 @@ export class LimitsClient {
           const res = await this.fetchRawUsage(name);
           return { name, res };
         } catch (err: any) {
+          this.logger.error(`Failed to fetch raw usage for ${name}: ${err.message || err}`);
           return { name, res: { error: err.message || err } };
         }
       })

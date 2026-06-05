@@ -210,9 +210,11 @@ export class AntigravityProvider extends BaseProvider {
   }
 
   async fetchUsage(): Promise<StandardUsageResult> {
+    this.debug("Fetching usage from Antigravity API");
     try {
       await this.initialize();
-    } catch (err) {
+    } catch (err: any) {
+      this.logger.error(`[${this.name}] Initialization failed: ${err?.message || err}`);
       return {
         provider: this.name,
         overallUsagePercent: null,
@@ -254,7 +256,8 @@ export class AntigravityProvider extends BaseProvider {
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      this.debug(`retrieveUserQuota failed (${err?.message || err}), falling back to fetchAvailableModels`);
       try {
         const data = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
         for (const [modelId, info] of Object.entries(data.models || {})) {
@@ -283,6 +286,7 @@ export class AntigravityProvider extends BaseProvider {
         }
       } catch (fallbackErr: any) {
         const msg = String(fallbackErr?.message || fallbackErr);
+        this.logger.error(`[${this.name}] Fetch failed: ${msg}`);
         let code: string | number = "API";
         let message = "API Error";
         if (msg.includes("401") || msg.includes("403") || msg.includes("token")) {
@@ -310,6 +314,7 @@ export class AntigravityProvider extends BaseProvider {
       overallUsagePercent = Math.min(Math.max(Math.round((1 - lowest) * 100), 0), 100);
     }
 
+    this.debug(`Usage fetched: ${overallUsagePercent ?? "n/a"}% used`);
     return {
       provider: this.name,
       overallUsagePercent,
