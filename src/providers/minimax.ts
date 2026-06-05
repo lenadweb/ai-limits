@@ -1,6 +1,6 @@
-import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse, UsageSummary } from "../types.js";
-import { buildSummary } from "../utils.js";
+import { BaseProvider } from "@/providers/base.js";
+import { StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse, UsageSummary } from "@/types.js";
+import { buildSummary } from "@/utils.js";
 
 interface MiniMaxModelRemains {
   start_time: number;

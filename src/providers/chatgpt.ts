@@ -2,9 +2,9 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
-import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ChatGptRawResponse, UsageSummary } from "../types.js";
-import { buildSummary } from "../utils.js";
+import { BaseProvider } from "@/providers/base.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ChatGptRawResponse, UsageSummary } from "@/types.js";
+import { buildSummary } from "@/utils.js";
 
 interface CodexAuthData {
   tokens?: {

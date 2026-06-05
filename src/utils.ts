@@ -1,4 +1,4 @@
-import { StandardUsageResult, UsageSummary } from "./types.js";
+import { StandardUsageResult, UsageSummary } from "@/types.js";
 
 export function formatResetTime(resetStr: string | null): string {
   if (!resetStr) return "-";

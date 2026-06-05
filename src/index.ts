@@ -1,13 +1,13 @@
-import { ProviderName, LimitsClientOptions, StandardUsageResult, UsageSummary } from "./types.js";
-import { AntigravityProvider } from "./providers/antigravity.js";
-import { ClaudeProvider } from "./providers/claude.js";
-import { ChatGptProvider } from "./providers/chatgpt.js";
-import { GeminiProvider } from "./providers/gemini.js";
-import { MiniMaxProvider } from "./providers/minimax.js";
-import { BaseProvider } from "./providers/base.js";
+import { ProviderName, LimitsClientOptions, StandardUsageResult, UsageSummary } from "@/types.js";
+import { AntigravityProvider } from "@/providers/antigravity.js";
+import { ClaudeProvider } from "@/providers/claude.js";
+import { ChatGptProvider } from "@/providers/chatgpt.js";
+import { GeminiProvider } from "@/providers/gemini.js";
+import { MiniMaxProvider } from "@/providers/minimax.js";
+import { BaseProvider } from "@/providers/base.js";
 
-export * from "./types.js";
-export * from "./utils.js";
+export * from "@/types.js";
+export * from "@/utils.js";
 export { BaseProvider };
 export { AntigravityProvider };
 export { ClaudeProvider };

@@ -6,9 +6,9 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
-import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, AntigravityRawResponse, UsageSummary } from "../types.js";
-import { buildSummary } from "../utils.js";
+import { BaseProvider } from "@/providers/base.js";
+import { StandardUsageResult, ModelUsage, ProviderName, AntigravityRawResponse, UsageSummary } from "@/types.js";
+import { buildSummary } from "@/utils.js";
 
 const CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com/v1internal";
 const OAUTH_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";

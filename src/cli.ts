@@ -3,9 +3,9 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import Table from "cli-table3";
-import { LimitsClient } from "./index.js";
-import { ProviderName, StandardUsageResult, ModelUsage } from "./types.js";
-import { AntigravityProvider } from "./providers/antigravity.js";
+import { LimitsClient } from "@/index.js";
+import { ProviderName, StandardUsageResult, ModelUsage } from "@/types.js";
+import { AntigravityProvider } from "@/providers/antigravity.js";
 
 const client = new LimitsClient();
 const program = new Command();

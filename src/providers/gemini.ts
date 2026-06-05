@@ -2,9 +2,9 @@ import { OAuth2Client } from "google-auth-library";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, GeminiRawResponse, UsageSummary } from "../types.js";
-import { buildSummary } from "../utils.js";
+import { BaseProvider } from "@/providers/base.js";
+import { StandardUsageResult, ModelUsage, ProviderName, GeminiRawResponse, UsageSummary } from "@/types.js";
+import { buildSummary } from "@/utils.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com/v1internal";
 const OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";

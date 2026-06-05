@@ -1,4 +1,4 @@
-import { StandardUsageResult, ProviderName, UsageSummary } from "../types.js";
+import { StandardUsageResult, ProviderName, UsageSummary } from "@/types.js";
 
 export abstract class BaseProvider {
   abstract readonly name: ProviderName;

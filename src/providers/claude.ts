@@ -2,9 +2,9 @@ import { execFileSync, spawn } from "child_process";
 import { readFile, stat } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
-import { BaseProvider } from "./base.js";
-import { StandardUsageResult, ProviderName, ClaudeRawResponse, UsageSummary } from "../types.js";
-import { buildSummary } from "../utils.js";
+import { BaseProvider } from "@/providers/base.js";
+import { StandardUsageResult, ProviderName, ClaudeRawResponse, UsageSummary } from "@/types.js";
+import { buildSummary } from "@/utils.js";
 
 interface ClaudeCredentials {
   claudeAiOauth?: {
