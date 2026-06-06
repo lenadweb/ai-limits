@@ -30,8 +30,11 @@ Next Reset:    in 2h 14m
 | Gemini | Google Cloud Code Assist | `~/.gemini/oauth_creds.json` |
 | Antigravity | Google Cloud Code Assist | OAuth login built into this CLI |
 | MiniMax | MiniMax OpenPlatform API | `MINIMAX_API_KEY` environment variable |
+| OpenRouter | OpenRouter API key endpoint | `OPENROUTER_API_KEY` environment variable |
 
 For Claude, ChatGPT and Gemini the credentials are created by the providers' own CLIs and IDE plugins. If those tools already work on your machine, this one works too. Antigravity is the only provider that needs an explicit login through this CLI.
+
+OpenRouter has no plan-based quota. Instead it reports the per-key spend limit (e.g. `$3 / month`): if the key has a limit set, you get an overall usage bar and reset time; if the key is unlimited, the spend is shown for information only.
 
 ## Installation
 
@@ -62,6 +65,7 @@ ai-limits show claude
 ai-limits show chatgpt
 ai-limits show gemini
 ai-limits show minimax
+ai-limits show openrouter
 ai-limits show antigravity
 ```
 
@@ -170,6 +174,9 @@ const client = new LimitsClient({
   minimax: {
     apiKey: process.env.MINIMAX_API_KEY,
   },
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY,
+  },
 });
 ```
 
@@ -182,6 +189,7 @@ This tool never asks for your passwords and never sends your tokens anywhere exc
 - Gemini: reads Google OAuth credentials from `~/.gemini/oauth_creds.json`.
 - Antigravity: runs a local OAuth flow and caches tokens in `~/.limits-streamdeck/antigravity_oauth.json`. Tokens are refreshed automatically.
 - MiniMax: uses the `MINIMAX_API_KEY` environment variable, or the `apiKey` option.
+- OpenRouter: uses the `OPENROUTER_API_KEY` environment variable, or the `apiKey` option. Calls `GET /api/v1/key` to read the key's spend limit and usage.
 
 For Gemini and Antigravity the package uses the same public OAuth client identifiers that the official Google CLIs ship with. These are public desktop clients protected by PKCE, not private secrets. You can swap in your own client through the configuration options above.
 
