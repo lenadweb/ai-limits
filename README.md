@@ -121,13 +121,13 @@ interface StandardUsageResult {
   overallUsagePercent: number | null;
   overallResetTime: string | null; // ISO timestamp
   perModel?: Record<string, {
-    usagePercent: number;
+    usagePercent: number | null; // null for informational rows (e.g. OpenRouter spend)
     remainingAmount?: number;
     limitAmount?: number;
     resetTime?: string | null;
     displayName?: string;
   }>;
-  error?: { code: string | number; message: string };
+  error?: { code: "AUTH" | "API" | "CONN" | number; message: string };
 }
 ```
 
@@ -146,6 +146,36 @@ interface UsageSummary {
 ```
 
 When a provider fails, `fetchUsage` resolves with the `error` field set instead of throwing, so a single broken provider never breaks the whole batch.
+
+### Typed accessors per provider
+
+Instead of iterating `perModel` with string keys, each provider exposes named, typed methods for its specific windows. Get the typed instance with `getProvider<T>(name)`. All accessors share the same cached fetch, so calling several in a row makes a single request.
+
+```typescript
+import { LimitsClient, ProviderName, ClaudeProvider, OpenRouterProvider } from "@lenadweb/ai-limits";
+
+const client = new LimitsClient();
+
+const claude = client.getProvider<ClaudeProvider>(ProviderName.Claude);
+await claude.getFiveHourUsage();   // ModelUsage | null
+await claude.getSevenDayUsage();   // ModelUsage | null
+
+const or = client.getProvider<OpenRouterProvider>(ProviderName.OpenRouter);
+await or.getLimit();         // OpenRouterLimit | null — { amount, interval, used, remaining, usagePercent, resetTime }
+await or.getMonthlySpend();  // number | null
+await or.fetchDetails();     // OpenRouterUsage — structured limit + spend
+```
+
+| Provider | Methods |
+| --- | --- |
+| Claude | `getFiveHourUsage()`, `getSevenDayUsage()`, `getSonnetWeeklyUsage()` |
+| ChatGPT | `getPrimaryWindow()`, `getSecondaryWindow()` |
+| MiniMax | `getDailyUsage()`, `getWeeklyUsage()` |
+| Gemini | `getModelUsage(modelId)`, `getModels()` |
+| Antigravity | `getModelUsage(modelId)`, `getModels()` |
+| OpenRouter | `getLimit()`, `getTotalSpend()`, `getDailySpend()`, `getWeeklySpend()`, `getMonthlySpend()`, `fetchDetails()` |
+
+Window accessors return `ModelUsage | null` (`null` when that window is absent). Every provider also inherits `listBuckets()` to discover the raw bucket keys.
 
 ### Custom configuration
 

@@ -172,3 +172,25 @@ export interface OpenRouterRawResponse {
     limit_reset?: ResetInterval | null;
   };
 }
+
+export interface OpenRouterLimit {
+  amount: number;
+  interval: ResetInterval | null;
+  used: number;
+  remaining: number;
+  usagePercent: number;
+  resetTime: string | null;
+}
+
+export interface OpenRouterSpend {
+  total: number;
+  daily: number | null;
+  weekly: number | null;
+  monthly: number | null;
+}
+
+export interface OpenRouterUsage {
+  isFreeTier: boolean;
+  limit: OpenRouterLimit | null;
+  spend: OpenRouterSpend;
+}
