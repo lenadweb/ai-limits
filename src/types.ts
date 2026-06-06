@@ -4,10 +4,11 @@ export enum ProviderName {
   ChatGpt = "chatgpt",
   Gemini = "gemini",
   MiniMax = "minimax",
+  OpenRouter = "openrouter",
 }
 
 export interface ModelUsage {
-  usagePercent: number;
+  usagePercent: number | null;
   remainingAmount?: number;
   limitAmount?: number;
   resetTime?: string | null;
@@ -65,6 +66,9 @@ export interface LimitsClientOptions {
     clientSecret?: string;
   };
   minimax?: {
+    apiKey?: string;
+  };
+  openrouter?: {
     apiKey?: string;
   };
 }
@@ -147,4 +151,18 @@ export interface MiniMaxRawResponse {
     current_weekly_remaining_percent?: number;
   }>;
   base_resp: { status_code: number; status_msg: string };
+}
+
+export interface OpenRouterRawResponse {
+  data: {
+    label?: string;
+    usage: number;
+    limit: number | null;
+    is_free_tier?: boolean;
+    limit_remaining?: number | null;
+    usage_daily?: number;
+    usage_weekly?: number;
+    usage_monthly?: number;
+    limit_reset?: "daily" | "weekly" | "monthly" | null;
+  };
 }

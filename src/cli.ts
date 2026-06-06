@@ -86,7 +86,7 @@ function renderResult(result: StandardUsageResult, logger: Logger) {
 program
   .command("show")
   .description("Display usage and limits for AI providers")
-  .argument("[provider]", "AI Provider name (antigravity, claude, chatgpt, gemini, minimax)")
+  .argument("[provider]", "AI Provider name (antigravity, claude, chatgpt, gemini, minimax, openrouter)")
   .option("-a, --all", "Query all providers", false)
   .action(async (providerArg, options) => {
     try {
@@ -98,6 +98,7 @@ program
           ProviderName.ChatGpt,
           ProviderName.Gemini,
           ProviderName.MiniMax,
+          ProviderName.OpenRouter,
         ];
         if (!valid.includes(name)) {
           client.logger.error(pc.red(`Error: Invalid provider '${providerArg}'. Valid options: ${valid.join(", ")}`));

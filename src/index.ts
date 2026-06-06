@@ -5,6 +5,7 @@ import { ClaudeProvider } from "@/providers/claude.js";
 import { ChatGptProvider } from "@/providers/chatgpt.js";
 import { GeminiProvider } from "@/providers/gemini.js";
 import { MiniMaxProvider } from "@/providers/minimax.js";
+import { OpenRouterProvider } from "@/providers/openrouter.js";
 import { BaseProvider } from "@/providers/base.js";
 
 export * from "@/types.js";
@@ -15,6 +16,7 @@ export { ClaudeProvider };
 export { ChatGptProvider };
 export { GeminiProvider };
 export { MiniMaxProvider };
+export { OpenRouterProvider };
 
 export class LimitsClient {
   private providers: Record<ProviderName, BaseProvider>;
@@ -29,6 +31,7 @@ export class LimitsClient {
       [ProviderName.ChatGpt]: new ChatGptProvider(options?.chatgpt),
       [ProviderName.Gemini]: new GeminiProvider(options?.gemini),
       [ProviderName.MiniMax]: new MiniMaxProvider(options?.minimax),
+      [ProviderName.OpenRouter]: new OpenRouterProvider(options?.openrouter),
     };
     for (const provider of Object.values(this.providers)) {
       provider.setLogger(this.logger);
