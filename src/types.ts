@@ -51,30 +51,45 @@ export interface Logger {
 
 export type LoggerOption = LogFunction | Logger;
 
-export interface ApiKeyOptions {
+export interface CacheOptions {
+  /** Internal usage cache TTL in milliseconds. Defaults to 30000. Set to 0 to disable caching. */
+  cacheTtlMs?: number;
+}
+
+export interface ApiKeyOptions extends CacheOptions {
   apiKey?: string;
+}
+
+export interface AntigravityOptions extends CacheOptions {
+  tokenPath?: string;
+  clientId?: string;
+  clientSecret?: string;
+}
+
+export interface ClaudeOptions extends CacheOptions {
+  credentialsPath?: string;
+  useKeychain?: boolean;
+}
+
+export interface ChatGptOptions extends CacheOptions {
+  authPath?: string;
+}
+
+export interface GeminiOptions extends CacheOptions {
+  credentialsPath?: string;
+  projectId?: string;
+  clientId?: string;
+  clientSecret?: string;
 }
 
 export interface LimitsClientOptions {
   logger?: LoggerOption;
-  antigravity?: {
-    tokenPath?: string;
-    clientId?: string;
-    clientSecret?: string;
-  };
-  claude?: {
-    credentialsPath?: string;
-    useKeychain?: boolean;
-  };
-  chatgpt?: {
-    authPath?: string;
-  };
-  gemini?: {
-    credentialsPath?: string;
-    projectId?: string;
-    clientId?: string;
-    clientSecret?: string;
-  };
+  /** Default usage cache TTL (ms) applied to every provider. Per-provider `cacheTtlMs` overrides it. Set to 0 to disable. */
+  cacheTtlMs?: number;
+  antigravity?: AntigravityOptions;
+  claude?: ClaudeOptions;
+  chatgpt?: ChatGptOptions;
+  gemini?: GeminiOptions;
   minimax?: ApiKeyOptions;
   openrouter?: ApiKeyOptions;
 }

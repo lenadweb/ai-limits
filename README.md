@@ -177,6 +177,26 @@ await or.fetchDetails();     // OpenRouterUsage — structured limit + spend
 
 Window accessors return `ModelUsage | null` (`null` when that window is absent). Every provider also inherits `listBuckets()` to discover the raw bucket keys.
 
+### Caching
+
+Each provider caches its normalized usage internally, so several accessor calls in a row (for example `getFiveHourUsage()` then `getSevenDayUsage()`) make a single network request. The default TTL is 30 seconds.
+
+Control it through config. Set `cacheTtlMs` globally or per provider; `0` disables caching entirely. A per-provider value overrides the global one.
+
+```typescript
+// Global default for every provider
+const client = new LimitsClient({ cacheTtlMs: 10000 });
+
+// Disable globally, but keep a 60s cache for OpenRouter only
+const client2 = new LimitsClient({
+  cacheTtlMs: 0,
+  openrouter: { apiKey: process.env.OPENROUTER_API_KEY, cacheTtlMs: 60000 },
+});
+
+// Force a fresh fetch on the next call
+client.getProvider(ProviderName.Claude).clearCache();
+```
+
 ### Custom configuration
 
 Every provider accepts overrides, which is useful for non standard credential locations, custom OAuth clients, or passing a key directly:
