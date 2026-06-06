@@ -2,7 +2,9 @@ import { BaseProvider } from "@/providers/base.js";
 import {
   ApiKeyOptions,
   ModelUsage,
+  OpenRouterLimit,
   OpenRouterRawResponse,
+  OpenRouterUsage,
   ProviderError,
   ProviderErrorCode,
   ProviderName,
@@ -75,11 +77,27 @@ function nextReset(reset: LimitReset): string | null {
   }
 }
 
+function toLimit(data: KeyData): OpenRouterLimit | null {
+  const { limit } = data;
+  if (limit == null || limit <= 0) return null;
+
+  const interval = data.limit_reset ?? null;
+  const used = data.limit_remaining != null ? limit - data.limit_remaining : usageForWindow(data, interval);
+
+  return {
+    amount: limit,
+    interval,
+    used,
+    remaining: data.limit_remaining ?? Math.max(0, limit - used),
+    usagePercent: clampPercent(Math.round((used / limit) * 100)),
+    resetTime: nextReset(interval),
+  };
+}
+
 export class OpenRouterProvider extends BaseProvider {
   readonly name = ProviderName.OpenRouter;
   private readonly apiKey: string | null;
-  private cache: StandardUsageResult | null = null;
-  private lastFetch = 0;
+  private cache: { response: OpenRouterRawResponse; at: number } | null = null;
 
   constructor(options?: ApiKeyOptions) {
     super();
@@ -87,39 +105,83 @@ export class OpenRouterProvider extends BaseProvider {
   }
 
   async fetchUsage(): Promise<StandardUsageResult> {
-    const now = Date.now();
-    if (this.cache && now - this.lastFetch < CACHE_TTL_MS) {
-      this.debug("Returning cached usage");
-      return this.cache;
-    }
-
     if (!this.apiKey) {
       this.debug("No API key configured, returning auth error");
       return this.errorResult("AUTH", "Auth Required");
     }
 
     try {
-      this.debug("Fetching key usage from OpenRouter API");
-      const { data } = await this.requestKeyInfo();
-      const result = this.buildResult(data);
-      this.cache = result;
-      this.lastFetch = now;
-      this.debug(`Usage fetched: ${result.overallUsagePercent ?? "n/a"}% used`);
-      return result;
+      const data = await this.loadData();
+      return this.buildResult(data);
     } catch (err) {
       return this.mapError(err);
     }
   }
 
   async fetchRawUsage(): Promise<OpenRouterRawResponse> {
-    if (!this.apiKey) {
-      throw new Error("Authentication credentials missing");
-    }
-    return this.requestKeyInfo();
+    return this.load();
   }
 
   async fetchSummary(): Promise<UsageSummary> {
     return buildSummary(await this.fetchUsage());
+  }
+
+  /** Structured, fully typed view of the key's limit and spend. */
+  async fetchDetails(): Promise<OpenRouterUsage> {
+    const data = await this.loadData();
+    return {
+      isFreeTier: data.is_free_tier ?? false,
+      limit: toLimit(data),
+      spend: {
+        total: data.usage,
+        daily: data.usage_daily ?? null,
+        weekly: data.usage_weekly ?? null,
+        monthly: data.usage_monthly ?? null,
+      },
+    };
+  }
+
+  /** Configured spend limit on the key, or `null` when the key is unlimited. */
+  async getLimit(): Promise<OpenRouterLimit | null> {
+    return toLimit(await this.loadData());
+  }
+
+  /** All-time spend in USD. */
+  async getTotalSpend(): Promise<number> {
+    return (await this.loadData()).usage;
+  }
+
+  async getDailySpend(): Promise<number | null> {
+    return (await this.loadData()).usage_daily ?? null;
+  }
+
+  async getWeeklySpend(): Promise<number | null> {
+    return (await this.loadData()).usage_weekly ?? null;
+  }
+
+  async getMonthlySpend(): Promise<number | null> {
+    return (await this.loadData()).usage_monthly ?? null;
+  }
+
+  private async loadData(): Promise<KeyData> {
+    return (await this.load()).data;
+  }
+
+  private async load(): Promise<OpenRouterRawResponse> {
+    const now = Date.now();
+    if (this.cache && now - this.cache.at < CACHE_TTL_MS) {
+      this.debug("Returning cached key data");
+      return this.cache.response;
+    }
+
+    if (!this.apiKey) {
+      throw new Error("Authentication credentials missing");
+    }
+
+    this.debug("Fetching key usage from OpenRouter API");
+    const response = await this.requestKeyInfo();
+    this.cache = { response, at: now };
+    return response;
   }
 
   private async requestKeyInfo(): Promise<OpenRouterRawResponse> {
@@ -155,20 +217,17 @@ export class OpenRouterProvider extends BaseProvider {
     let overallUsagePercent: number | null = null;
     let overallResetTime: string | null = null;
 
-    const { limit } = data;
-    if (limit != null && limit > 0) {
-      const reset = data.limit_reset ?? null;
-      const used = data.limit_remaining != null ? limit - data.limit_remaining : usageForWindow(data, reset);
+    const limit = toLimit(data);
+    if (limit) {
+      overallUsagePercent = limit.usagePercent;
+      overallResetTime = limit.resetTime;
 
-      overallUsagePercent = clampPercent(Math.round((used / limit) * 100));
-      overallResetTime = nextReset(reset);
-
-      perModel[reset ?? "total"] = {
-        usagePercent: overallUsagePercent,
-        remainingAmount: data.limit_remaining ?? Math.max(0, limit - used),
-        limitAmount: limit,
-        resetTime: overallResetTime,
-        displayName: `${reset ? WINDOW_LABEL[reset] : "Total"} Limit ($${limit})`,
+      perModel[limit.interval ?? "total"] = {
+        usagePercent: limit.usagePercent,
+        remainingAmount: limit.remaining,
+        limitAmount: limit.amount,
+        resetTime: limit.resetTime,
+        displayName: `${limit.interval ? WINDOW_LABEL[limit.interval] : "Total"} Limit ($${limit.amount})`,
       };
     }
 

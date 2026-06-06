@@ -345,6 +345,16 @@ export class AntigravityProvider extends BaseProvider {
     return buildSummary(usage);
   }
 
+  /** Usage of a specific model bucket, or `null` if the model is not reported. */
+  getModelUsage(modelId: string): Promise<ModelUsage | null> {
+    return this.bucket(modelId);
+  }
+
+  /** Model ids reported in the latest usage snapshot. */
+  getModels(): Promise<string[]> {
+    return this.listBuckets();
+  }
+
   private async fetchModelDisplayNames(): Promise<Record<string, string>> {
     const labels: Record<string, string> = {};
     try {

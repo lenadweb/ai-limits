@@ -178,6 +178,16 @@ export class ChatGptProvider extends BaseProvider {
     return buildSummary(usage);
   }
 
+  /** Usage of the primary rate-limit window. */
+  getPrimaryWindow(): Promise<ModelUsage | null> {
+    return this.bucket("primary_window");
+  }
+
+  /** Usage of the secondary rate-limit window. */
+  getSecondaryWindow(): Promise<ModelUsage | null> {
+    return this.bucket("secondary_window");
+  }
+
   private async readAuthTokens(): Promise<{ accessToken: string; accountId: string } | null> {
     try {
       if (!existsSync(this.authPath)) {

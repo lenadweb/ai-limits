@@ -3,7 +3,7 @@ import { readFile, stat } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ProviderName, ClaudeRawResponse, UsageSummary } from "@/types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ClaudeRawResponse, UsageSummary } from "@/types.js";
 import { buildSummary } from "@/utils.js";
 
 interface ClaudeCredentials {
@@ -276,6 +276,21 @@ export class ClaudeProvider extends BaseProvider {
   async fetchSummary(): Promise<UsageSummary> {
     const usage = await this.fetchUsage();
     return buildSummary(usage);
+  }
+
+  /** Usage of the rolling 5-hour quota window. */
+  getFiveHourUsage(): Promise<ModelUsage | null> {
+    return this.bucket("5h_quota");
+  }
+
+  /** Usage of the rolling 7-day quota window. */
+  getSevenDayUsage(): Promise<ModelUsage | null> {
+    return this.bucket("7d_quota");
+  }
+
+  /** Usage of the Sonnet-specific 7-day quota window. */
+  getSonnetWeeklyUsage(): Promise<ModelUsage | null> {
+    return this.bucket("7d_sonnet_quota");
   }
 
   private async getCredentials(): Promise<string | null> {

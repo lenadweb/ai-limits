@@ -1,4 +1,4 @@
-import { StandardUsageResult, ProviderName, UsageSummary, Logger } from "@/types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, UsageSummary, Logger } from "@/types.js";
 import { consoleLogger } from "@/utils.js";
 
 export abstract class BaseProvider {
@@ -17,4 +17,16 @@ export abstract class BaseProvider {
   abstract fetchUsage(): Promise<StandardUsageResult>;
   abstract fetchRawUsage(): Promise<unknown>;
   abstract fetchSummary(): Promise<UsageSummary>;
+
+  /** Reads a single normalized bucket from {@link fetchUsage}, or `null` if absent. */
+  protected async bucket(key: string): Promise<ModelUsage | null> {
+    const usage = await this.fetchUsage();
+    return usage.perModel?.[key] ?? null;
+  }
+
+  /** Lists the available bucket keys for this provider's latest usage snapshot. */
+  async listBuckets(): Promise<string[]> {
+    const usage = await this.fetchUsage();
+    return Object.keys(usage.perModel ?? {});
+  }
 }

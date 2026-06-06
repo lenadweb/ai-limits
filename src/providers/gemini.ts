@@ -160,6 +160,16 @@ export class GeminiProvider extends BaseProvider {
     return buildSummary(usage);
   }
 
+  /** Usage of a specific model bucket, or `null` if the model is not reported. */
+  getModelUsage(modelId: string): Promise<ModelUsage | null> {
+    return this.bucket(modelId);
+  }
+
+  /** Model ids reported in the latest usage snapshot. */
+  getModels(): Promise<string[]> {
+    return this.listBuckets();
+  }
+
   private async initialize() {
     if (this.isInitialized) return;
     const credsStr = await fs.readFile(this.credentialsPath, "utf-8");

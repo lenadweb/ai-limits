@@ -171,4 +171,14 @@ export class MiniMaxProvider extends BaseProvider {
     const usage = await this.fetchUsage();
     return buildSummary(usage);
   }
+
+  /** Usage of the current daily interval. */
+  getDailyUsage(): Promise<ModelUsage | null> {
+    return this.bucket(this.TARGET_MODEL);
+  }
+
+  /** Usage of the current weekly interval. */
+  getWeeklyUsage(): Promise<ModelUsage | null> {
+    return this.bucket("weekly_interval");
+  }
 }
