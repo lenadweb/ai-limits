@@ -1,6 +1,5 @@
 import { BaseProvider } from "@/providers/base.js";
-import { ApiKeyOptions, StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse, UsageSummary } from "@/types.js";
-import { buildSummary } from "@/utils.js";
+import { ApiKeyOptions, StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse } from "@/types.js";
 
 interface MiniMaxModelRemains {
   start_time: number;
@@ -28,23 +27,14 @@ interface MiniMaxApiResponse {
 export class MiniMaxProvider extends BaseProvider {
   readonly name = ProviderName.MiniMax;
   private apiKey: string | null;
-  private lastFetch: number = 0;
-  private cache: StandardUsageResult | null = null;
-  private readonly CACHE_TTL_MS = 60000;
   private readonly TARGET_MODEL = "general";
 
   constructor(options?: ApiKeyOptions) {
-    super();
+    super(options);
     this.apiKey = options?.apiKey || process.env.MINIMAX_API_KEY || null;
   }
 
-  async fetchUsage(): Promise<StandardUsageResult> {
-    const now = Date.now();
-    if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
-      this.debug("Returning cached usage");
-      return this.cache;
-    }
-
+  protected async loadUsage(): Promise<StandardUsageResult> {
     if (!this.apiKey) {
       this.debug("No API key configured, returning auth error");
       return {
@@ -135,8 +125,6 @@ export class MiniMaxProvider extends BaseProvider {
         perModel,
       };
 
-      this.cache = result;
-      this.lastFetch = now;
       this.debug(`Usage fetched: ${overallUsagePercent}% used`);
       return result;
     } catch (err: any) {
@@ -165,11 +153,6 @@ export class MiniMaxProvider extends BaseProvider {
       throw new Error(`MiniMax API returned status ${response.status}`);
     }
     return (await response.json()) as MiniMaxRawResponse;
-  }
-
-  async fetchSummary(): Promise<UsageSummary> {
-    const usage = await this.fetchUsage();
-    return buildSummary(usage);
   }
 
   /** Usage of the current daily interval. */

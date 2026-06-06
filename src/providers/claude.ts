@@ -3,8 +3,7 @@ import { readFile, stat } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ClaudeRawResponse, UsageSummary } from "@/types.js";
-import { buildSummary } from "@/utils.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ClaudeOptions, ClaudeRawResponse } from "@/types.js";
 
 interface ClaudeCredentials {
   claudeAiOauth?: {
@@ -31,10 +30,7 @@ export class ClaudeProvider extends BaseProvider {
   readonly name = ProviderName.Claude;
   private credentialsPath: string;
   private useKeychain: boolean;
-  private lastFetch: number = 0;
-  private cache: StandardUsageResult | null = null;
   private credCache: { token: string | null; mtime?: number; timestamp?: number } | null = null;
-  private readonly CACHE_TTL_MS = 60000;
   private readonly KEYCHAIN_CACHE_TTL_MS = 10000;
   private readonly MAX_RETRIES = 4;
   private readonly BASE_BACKOFF_MS = 1000;
@@ -45,14 +41,14 @@ export class ClaudeProvider extends BaseProvider {
   private cooldownUntil = 0;
   private invalidTokens = new Set<string>();
 
-  constructor(options?: { credentialsPath?: string; useKeychain?: boolean }) {
-    super();
+  constructor(options?: ClaudeOptions) {
+    super(options);
     const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
     this.credentialsPath = options?.credentialsPath || join(configDir, ".credentials.json");
     this.useKeychain = options?.useKeychain ?? true;
   }
 
-  async fetchUsage(): Promise<StandardUsageResult> {
+  protected async loadUsage(): Promise<StandardUsageResult> {
     const now = Date.now();
     if (this.cooldownUntil > now) {
       return {
@@ -61,11 +57,6 @@ export class ClaudeProvider extends BaseProvider {
         overallResetTime: null,
         error: { code: 429, message: "Rate Limit" },
       };
-    }
-
-    if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
-      this.debug("Returning cached usage");
-      return this.cache;
     }
 
     const token = await this.getCredentials();
@@ -126,8 +117,6 @@ export class ClaudeProvider extends BaseProvider {
 
       const data = (await response.json()) as ClaudeApiResponse;
       const usage = this.mapResponseToResult(data);
-      this.cache = usage;
-      this.lastFetch = now;
       this.consecutive429Count = 0;
       this.cooldownUntil = 0;
       this.debug(`Usage fetched: ${usage.overallUsagePercent ?? "n/a"}% used`);
@@ -196,8 +185,6 @@ export class ClaudeProvider extends BaseProvider {
 
       const data = (await response.json()) as ClaudeApiResponse;
       const usage = this.mapResponseToResult(data);
-      this.cache = usage;
-      this.lastFetch = Date.now();
       this.consecutive429Count = 0;
       this.cooldownUntil = 0;
       return usage;
@@ -271,11 +258,6 @@ export class ClaudeProvider extends BaseProvider {
       throw new Error(`Anthropic API returned status ${response?.status || "unknown"}`);
     }
     return (await response.json()) as ClaudeRawResponse;
-  }
-
-  async fetchSummary(): Promise<UsageSummary> {
-    const usage = await this.fetchUsage();
-    return buildSummary(usage);
   }
 
   /** Usage of the rolling 5-hour quota window. */

@@ -10,16 +10,13 @@ import {
   ProviderName,
   ResetInterval,
   StandardUsageResult,
-  UsageSummary,
 } from "@/types.js";
-import { buildSummary } from "@/utils.js";
 
 type LimitReset = ResetInterval | null;
 type KeyData = OpenRouterRawResponse["data"];
 
 const ENDPOINT = "https://openrouter.ai/api/v1/key";
 const REQUEST_TIMEOUT_MS = 5000;
-const CACHE_TTL_MS = 60000;
 
 const WINDOW_LABEL: Record<ResetInterval, string> = {
   daily: "Daily",
@@ -100,11 +97,11 @@ export class OpenRouterProvider extends BaseProvider {
   private cache: { response: OpenRouterRawResponse; at: number } | null = null;
 
   constructor(options?: ApiKeyOptions) {
-    super();
+    super(options);
     this.apiKey = options?.apiKey || process.env.OPENROUTER_API_KEY || null;
   }
 
-  async fetchUsage(): Promise<StandardUsageResult> {
+  protected async loadUsage(): Promise<StandardUsageResult> {
     if (!this.apiKey) {
       this.debug("No API key configured, returning auth error");
       return this.errorResult("AUTH", "Auth Required");
@@ -122,8 +119,8 @@ export class OpenRouterProvider extends BaseProvider {
     return this.load();
   }
 
-  async fetchSummary(): Promise<UsageSummary> {
-    return buildSummary(await this.fetchUsage());
+  protected onClearCache(): void {
+    this.cache = null;
   }
 
   /** Structured, fully typed view of the key's limit and spend. */
@@ -169,7 +166,7 @@ export class OpenRouterProvider extends BaseProvider {
 
   private async load(): Promise<OpenRouterRawResponse> {
     const now = Date.now();
-    if (this.cache && now - this.cache.at < CACHE_TTL_MS) {
+    if (this.cache && this.cacheTtlMs > 0 && now - this.cache.at < this.cacheTtlMs) {
       this.debug("Returning cached key data");
       return this.cache.response;
     }

@@ -25,13 +25,15 @@ export class LimitsClient {
 
   constructor(options?: LimitsClientOptions) {
     this.logger = resolveLogger(options?.logger);
+    const withCacheDefault = <T extends { cacheTtlMs?: number }>(opts?: T): T =>
+      ({ ...(opts ?? {}), cacheTtlMs: opts?.cacheTtlMs ?? options?.cacheTtlMs } as T);
     this.providers = {
-      [ProviderName.Antigravity]: new AntigravityProvider(options?.antigravity),
-      [ProviderName.Claude]: new ClaudeProvider(options?.claude),
-      [ProviderName.ChatGpt]: new ChatGptProvider(options?.chatgpt),
-      [ProviderName.Gemini]: new GeminiProvider(options?.gemini),
-      [ProviderName.MiniMax]: new MiniMaxProvider(options?.minimax),
-      [ProviderName.OpenRouter]: new OpenRouterProvider(options?.openrouter),
+      [ProviderName.Antigravity]: new AntigravityProvider(withCacheDefault(options?.antigravity)),
+      [ProviderName.Claude]: new ClaudeProvider(withCacheDefault(options?.claude)),
+      [ProviderName.ChatGpt]: new ChatGptProvider(withCacheDefault(options?.chatgpt)),
+      [ProviderName.Gemini]: new GeminiProvider(withCacheDefault(options?.gemini)),
+      [ProviderName.MiniMax]: new MiniMaxProvider(withCacheDefault(options?.minimax)),
+      [ProviderName.OpenRouter]: new OpenRouterProvider(withCacheDefault(options?.openrouter)),
     };
     for (const provider of Object.values(this.providers)) {
       provider.setLogger(this.logger);

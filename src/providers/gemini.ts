@@ -3,8 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, GeminiRawResponse, UsageSummary } from "@/types.js";
-import { buildSummary } from "@/utils.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, GeminiOptions, GeminiRawResponse } from "@/types.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com/v1internal";
 const OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
@@ -36,12 +35,9 @@ export class GeminiProvider extends BaseProvider {
   private clientId: string | undefined;
   private clientSecret: string | undefined;
   private isInitialized = false;
-  private lastFetch: number = 0;
-  private cache: StandardUsageResult | null = null;
-  private readonly CACHE_TTL_MS = 60000;
 
-  constructor(options?: { credentialsPath?: string; projectId?: string; clientId?: string; clientSecret?: string }) {
-    super();
+  constructor(options?: GeminiOptions) {
+    super(options);
     this.credentialsPath = options?.credentialsPath || path.join(os.homedir(), ".gemini", "oauth_creds.json");
     this.projectId = options?.projectId || null;
     this.clientId = options?.clientId || process.env.GEMINI_CLIENT_ID || OAUTH_CLIENT_ID;
@@ -52,13 +48,7 @@ export class GeminiProvider extends BaseProvider {
     });
   }
 
-  async fetchUsage(): Promise<StandardUsageResult> {
-    const now = Date.now();
-    if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
-      this.debug("Returning cached usage");
-      return this.cache;
-    }
-
+  protected async loadUsage(): Promise<StandardUsageResult> {
     try {
       this.debug("Fetching usage from Gemini Code Assist API");
       await this.initialize();
@@ -77,8 +67,6 @@ export class GeminiProvider extends BaseProvider {
           overallResetTime: null,
           perModel,
         };
-        this.cache = result;
-        this.lastFetch = now;
         return result;
       }
 
@@ -119,8 +107,6 @@ export class GeminiProvider extends BaseProvider {
         perModel,
       };
 
-      this.cache = result;
-      this.lastFetch = now;
       this.debug(`Usage fetched: ${overallUsagePercent}% used`);
       return result;
     } catch (err: any) {
@@ -153,11 +139,6 @@ export class GeminiProvider extends BaseProvider {
     return await this.apiPost<GeminiRawResponse>("retrieveUserQuota", {
       project: projId,
     });
-  }
-
-  async fetchSummary(): Promise<UsageSummary> {
-    const usage = await this.fetchUsage();
-    return buildSummary(usage);
   }
 
   /** Usage of a specific model bucket, or `null` if the model is not reported. */

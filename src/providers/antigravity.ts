@@ -7,8 +7,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, AntigravityRawResponse, UsageSummary } from "@/types.js";
-import { buildSummary } from "@/utils.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, AntigravityOptions, AntigravityRawResponse } from "@/types.js";
 
 const CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com/v1internal";
 const OAUTH_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
@@ -70,8 +69,8 @@ export class AntigravityProvider extends BaseProvider {
     reject: (err: Error) => void;
   } | null = null;
 
-  constructor(options?: { tokenPath?: string; clientId?: string; clientSecret?: string }) {
-    super();
+  constructor(options?: AntigravityOptions) {
+    super(options);
     this.tokenPath = options?.tokenPath || path.join(os.homedir(), ".limits-streamdeck", "antigravity_oauth.json");
     this.clientId = options?.clientId || process.env.ANTIGRAVITY_CLIENT_ID || OAUTH_CLIENT_ID;
     this.clientSecret = options?.clientSecret || process.env.ANTIGRAVITY_CLIENT_SECRET || OAUTH_CLIENT_SECRET;
@@ -209,7 +208,7 @@ export class AntigravityProvider extends BaseProvider {
     });
   }
 
-  async fetchUsage(): Promise<StandardUsageResult> {
+  protected async loadUsage(): Promise<StandardUsageResult> {
     this.debug("Fetching usage from Antigravity API");
     try {
       await this.initialize();
@@ -338,11 +337,6 @@ export class AntigravityProvider extends BaseProvider {
         models: models.models,
       };
     }
-  }
-
-  async fetchSummary(): Promise<UsageSummary> {
-    const usage = await this.fetchUsage();
-    return buildSummary(usage);
   }
 
   /** Usage of a specific model bucket, or `null` if the model is not reported. */

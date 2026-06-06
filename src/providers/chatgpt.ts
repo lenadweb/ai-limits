@@ -3,8 +3,7 @@ import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ChatGptRawResponse, UsageSummary } from "@/types.js";
-import { buildSummary } from "@/utils.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ChatGptOptions, ChatGptRawResponse } from "@/types.js";
 
 interface CodexAuthData {
   tokens?: {
@@ -30,23 +29,14 @@ interface CodexApiResponse {
 export class ChatGptProvider extends BaseProvider {
   readonly name = ProviderName.ChatGpt;
   private authPath: string;
-  private lastFetch: number = 0;
-  private cache: StandardUsageResult | null = null;
-  private readonly CACHE_TTL_MS = 60000;
 
-  constructor(options?: { authPath?: string }) {
-    super();
+  constructor(options?: ChatGptOptions) {
+    super(options);
     const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
     this.authPath = options?.authPath || join(codexHome, "auth.json");
   }
 
-  async fetchUsage(): Promise<StandardUsageResult> {
-    const now = Date.now();
-    if (this.cache && (now - this.lastFetch) < this.CACHE_TTL_MS) {
-      this.debug("Returning cached usage");
-      return this.cache;
-    }
-
+  protected async loadUsage(): Promise<StandardUsageResult> {
     const auth = await this.readAuthTokens();
     if (!auth) {
       this.debug(`No auth tokens at ${this.authPath}, returning auth error`);
@@ -138,8 +128,6 @@ export class ChatGptProvider extends BaseProvider {
         perModel,
       };
 
-      this.cache = result;
-      this.lastFetch = now;
       this.debug(`Usage fetched: ${overallUsagePercent ?? "n/a"}% used`);
       return result;
     } catch (err: any) {
@@ -171,11 +159,6 @@ export class ChatGptProvider extends BaseProvider {
       throw new Error(`ChatGPT API returned status ${response.status}`);
     }
     return (await response.json()) as ChatGptRawResponse;
-  }
-
-  async fetchSummary(): Promise<UsageSummary> {
-    const usage = await this.fetchUsage();
-    return buildSummary(usage);
   }
 
   /** Usage of the primary rate-limit window. */
