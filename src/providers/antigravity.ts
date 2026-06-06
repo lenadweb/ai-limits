@@ -7,7 +7,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, AntigravityRawResponse, UsageSummary } from "@/types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, AntigravityRawResponse, UsageSummary } from "@/types.js";
 import { buildSummary } from "@/utils.js";
 
 const CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com/v1internal";
@@ -287,7 +287,7 @@ export class AntigravityProvider extends BaseProvider {
       } catch (fallbackErr: any) {
         const msg = String(fallbackErr?.message || fallbackErr);
         this.logger.error(`[${this.name}] Fetch failed: ${msg}`);
-        let code: string | number = "API";
+        let code: ProviderErrorCode = "API";
         let message = "API Error";
         if (msg.includes("401") || msg.includes("403") || msg.includes("token")) {
           code = "AUTH";

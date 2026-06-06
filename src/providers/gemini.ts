@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, GeminiRawResponse, UsageSummary } from "@/types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, GeminiRawResponse, UsageSummary } from "@/types.js";
 import { buildSummary } from "@/utils.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com/v1internal";
@@ -126,7 +126,7 @@ export class GeminiProvider extends BaseProvider {
     } catch (err: any) {
       const msg = String(err?.message || err);
       this.logger.error(`[${this.name}] Fetch failed: ${msg}`);
-      let code: string | number = "API";
+      let code: ProviderErrorCode = "API";
       let message = "API Error";
       if (msg.includes("credentials") || msg.includes("ENOENT") || msg.includes("token") || msg.includes("401") || msg.includes("403")) {
         code = "AUTH";

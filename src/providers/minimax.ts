@@ -1,5 +1,5 @@
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse, UsageSummary } from "@/types.js";
+import { ApiKeyOptions, StandardUsageResult, ModelUsage, ProviderName, MiniMaxRawResponse, UsageSummary } from "@/types.js";
 import { buildSummary } from "@/utils.js";
 
 interface MiniMaxModelRemains {
@@ -33,7 +33,7 @@ export class MiniMaxProvider extends BaseProvider {
   private readonly CACHE_TTL_MS = 60000;
   private readonly TARGET_MODEL = "general";
 
-  constructor(options?: { apiKey?: string }) {
+  constructor(options?: ApiKeyOptions) {
     super();
     this.apiKey = options?.apiKey || process.env.MINIMAX_API_KEY || null;
   }

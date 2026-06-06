@@ -1,8 +1,17 @@
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, OpenRouterRawResponse, UsageSummary } from "@/types.js";
+import {
+  ApiKeyOptions,
+  ModelUsage,
+  OpenRouterRawResponse,
+  ProviderError,
+  ProviderErrorCode,
+  ProviderName,
+  ResetInterval,
+  StandardUsageResult,
+  UsageSummary,
+} from "@/types.js";
 import { buildSummary } from "@/utils.js";
 
-type ResetInterval = "daily" | "weekly" | "monthly";
 type LimitReset = ResetInterval | null;
 type KeyData = OpenRouterRawResponse["data"];
 
@@ -72,7 +81,7 @@ export class OpenRouterProvider extends BaseProvider {
   private cache: StandardUsageResult | null = null;
   private lastFetch = 0;
 
-  constructor(options?: { apiKey?: string }) {
+  constructor(options?: ApiKeyOptions) {
     super();
     this.apiKey = options?.apiKey || process.env.OPENROUTER_API_KEY || null;
   }
@@ -200,12 +209,13 @@ export class OpenRouterProvider extends BaseProvider {
     return this.errorResult("CONN", "Conn Error");
   }
 
-  private errorResult(code: string | number, message: string): StandardUsageResult {
+  private errorResult(code: ProviderErrorCode, message: string): StandardUsageResult {
+    const error: ProviderError = { code, message };
     return {
       provider: this.name,
       overallUsagePercent: null,
       overallResetTime: null,
-      error: { code, message },
+      error,
     };
   }
 }

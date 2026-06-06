@@ -7,6 +7,15 @@ export enum ProviderName {
   OpenRouter = "openrouter",
 }
 
+export type ResetInterval = "daily" | "weekly" | "monthly";
+
+export type ProviderErrorCode = "AUTH" | "API" | "CONN" | number;
+
+export interface ProviderError {
+  code: ProviderErrorCode;
+  message: string;
+}
+
 export interface ModelUsage {
   usagePercent: number | null;
   remainingAmount?: number;
@@ -20,10 +29,7 @@ export interface StandardUsageResult {
   overallUsagePercent: number | null;
   overallResetTime: string | null;
   perModel?: Record<string, ModelUsage>;
-  error?: {
-    code: string | number;
-    message: string;
-  };
+  error?: ProviderError;
 }
 
 export interface UsageSummary {
@@ -45,6 +51,10 @@ export interface Logger {
 
 export type LoggerOption = LogFunction | Logger;
 
+export interface ApiKeyOptions {
+  apiKey?: string;
+}
+
 export interface LimitsClientOptions {
   logger?: LoggerOption;
   antigravity?: {
@@ -65,12 +75,8 @@ export interface LimitsClientOptions {
     clientId?: string;
     clientSecret?: string;
   };
-  minimax?: {
-    apiKey?: string;
-  };
-  openrouter?: {
-    apiKey?: string;
-  };
+  minimax?: ApiKeyOptions;
+  openrouter?: ApiKeyOptions;
 }
 
 export interface AntigravityRawModelInfo {
@@ -163,6 +169,6 @@ export interface OpenRouterRawResponse {
     usage_daily?: number;
     usage_weekly?: number;
     usage_monthly?: number;
-    limit_reset?: "daily" | "weekly" | "monthly" | null;
+    limit_reset?: ResetInterval | null;
   };
 }
