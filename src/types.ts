@@ -69,6 +69,8 @@ export interface AntigravityOptions extends CacheOptions {
 export interface ClaudeOptions extends CacheOptions {
   credentialsPath?: string;
   useKeychain?: boolean;
+  /** Refresh the OAuth token via the refresh token when it expires and write it back to the credential store. Defaults to true. */
+  autoRefresh?: boolean;
 }
 
 export interface ChatGptOptions extends CacheOptions {

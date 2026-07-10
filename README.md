@@ -234,7 +234,7 @@ const client = new LimitsClient({
 
 This tool never asks for your passwords and never sends your tokens anywhere except to the matching provider's official API.
 
-- Claude: reads the token from the macOS Keychain entry `Claude Code-credentials`, or from `~/.claude/.credentials.json`. Set `useKeychain: false` to force the file.
+- Claude: reads the token from the macOS Keychain entry `Claude Code-credentials`, or from `~/.claude/.credentials.json`. Set `useKeychain: false` to force the file. When the OAuth token expires it is refreshed automatically through Anthropic's token endpoint and written back to the same credential store, so Claude Code stays logged in. Set `autoRefresh: false` to disable this.
 - ChatGPT / Codex: reads the access token and account id from `~/.codex/auth.json`.
 - Gemini: reads Google OAuth credentials from `~/.gemini/oauth_creds.json`.
 - Antigravity: runs a local OAuth flow and caches tokens in `~/.limits-streamdeck/antigravity_oauth.json`. Tokens are refreshed automatically.

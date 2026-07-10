@@ -1,15 +1,33 @@
-import { execFileSync, spawn } from "child_process";
-import { readFile, stat } from "fs/promises";
+import { execFileSync } from "child_process";
+import { readFile, stat, writeFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { BaseProvider } from "@/providers/base.js";
 import { StandardUsageResult, ModelUsage, ProviderName, ClaudeOptions, ClaudeRawResponse } from "@/types.js";
 
-interface ClaudeCredentials {
-  claudeAiOauth?: {
-    accessToken?: string;
-  };
+interface ClaudeOAuthData {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  scopes?: string[];
+  subscriptionType?: string;
+  rateLimitTier?: string;
 }
+
+interface ClaudeCredentials {
+  claudeAiOauth?: ClaudeOAuthData;
+  [key: string]: unknown;
+}
+
+interface StoredCredentials {
+  oauth: ClaudeOAuthData;
+  payload: ClaudeCredentials;
+  source: "keychain" | "file";
+}
+
+type TokenResolution =
+  | { token: string }
+  | { error: "missing" | "expired" };
 
 interface ClaudeApiResponse {
   five_hour?: {
@@ -26,26 +44,49 @@ interface ClaudeApiResponse {
   } | null;
 }
 
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
+
 export class ClaudeProvider extends BaseProvider {
   readonly name = ProviderName.Claude;
   private credentialsPath: string;
   private useKeychain: boolean;
-  private credCache: { token: string | null; mtime?: number; timestamp?: number } | null = null;
+  private autoRefresh: boolean;
+  private credCache: { stored: StoredCredentials | null; mtime?: number; timestamp?: number } | null = null;
   private readonly KEYCHAIN_CACHE_TTL_MS = 10000;
   private readonly MAX_RETRIES = 4;
   private readonly BASE_BACKOFF_MS = 1000;
   private readonly MAX_BACKOFF_MS = 30000;
   private readonly MAX_CONSECUTIVE_429 = 4;
   private readonly CIRCUIT_COOLDOWN_MS = 60000;
+  // Claude Code's public OAuth client id; the token endpoint accepts refresh grants for it.
+  private readonly OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+  private readonly OAUTH_TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token";
+  private readonly TOKEN_EXPIRY_LEEWAY_MS = 60000;
+  private readonly REFRESH_COOLDOWN_MS = 300000;
   private consecutive429Count = 0;
   private cooldownUntil = 0;
   private invalidTokens = new Set<string>();
+  // Refresh tokens rejected with invalid_grant; retrying them can never succeed until the user re-logs-in.
+  private deadRefreshTokens = new Set<string>();
+  private refreshCooldownUntil = 0;
+  private refreshInFlight: Promise<ClaudeOAuthData | null> | null = null;
+  // Holds refreshed credentials when writing them back to the original store fails.
+  private memoryOauth: ClaudeOAuthData | null = null;
 
   constructor(options?: ClaudeOptions) {
     super(options);
     const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
     this.credentialsPath = options?.credentialsPath || join(configDir, ".credentials.json");
     this.useKeychain = options?.useKeychain ?? true;
+    this.autoRefresh = options?.autoRefresh ?? true;
+  }
+
+  protected onClearCache(): void {
+    this.credCache = null;
+    this.memoryOauth = null;
+    this.invalidTokens.clear();
+    this.deadRefreshTokens.clear();
+    this.refreshCooldownUntil = 0;
   }
 
   protected async loadUsage(): Promise<StandardUsageResult> {
@@ -59,16 +100,17 @@ export class ClaudeProvider extends BaseProvider {
       };
     }
 
-    const token = await this.getCredentials();
-    if (!token) {
-      this.debug("No credentials, returning auth error");
+    const resolution = await this.resolveAccessToken();
+    if ("error" in resolution) {
+      this.debug(resolution.error === "expired" ? "Token expired and refresh unavailable" : "No credentials, returning auth error");
       return {
         provider: this.name,
         overallUsagePercent: null,
         overallResetTime: null,
-        error: { code: "AUTH", message: "Auth Required" },
+        error: { code: "AUTH", message: resolution.error === "expired" ? "Login Expired" : "Auth Required" },
       };
     }
+    const token = resolution.token;
 
     try {
       this.debug("Fetching usage from Claude API");
@@ -85,8 +127,8 @@ export class ClaudeProvider extends BaseProvider {
       if (response.status === 401) {
         this.invalidTokens.add(token);
         this.credCache = null;
-        const refreshed = await this.refreshTokenViaCLI();
-        if (refreshed) {
+        const refreshed = await this.refreshCredentials();
+        if (refreshed?.accessToken) {
           return await this.fetchUsageInternal();
         }
         return {
@@ -133,15 +175,16 @@ export class ClaudeProvider extends BaseProvider {
   }
 
   private async fetchUsageInternal(): Promise<StandardUsageResult> {
-    const token = await this.getCredentials();
-    if (!token) {
+    const resolution = await this.resolveAccessToken();
+    if ("error" in resolution) {
       return {
         provider: this.name,
         overallUsagePercent: null,
         overallResetTime: null,
-        error: { code: "AUTH", message: "Auth Required" },
+        error: { code: "AUTH", message: resolution.error === "expired" ? "Login Expired" : "Auth Required" },
       };
     }
+    const token = resolution.token;
 
     try {
       const response = await this.fetchWithRetry(token);
@@ -249,11 +292,11 @@ export class ClaudeProvider extends BaseProvider {
   }
 
   async fetchRawUsage(): Promise<ClaudeRawResponse> {
-    const token = await this.getCredentials();
-    if (!token) {
-      throw new Error("Authentication credentials missing");
+    const resolution = await this.resolveAccessToken();
+    if ("error" in resolution) {
+      throw new Error(resolution.error === "expired" ? "Authentication expired, run /login in Claude Code" : "Authentication credentials missing");
     }
-    const response = await this.fetchUsageEndpoint(token);
+    const response = await this.fetchUsageEndpoint(resolution.token);
     if (!response || !response.ok) {
       throw new Error(`Anthropic API returned status ${response?.status || "unknown"}`);
     }
@@ -275,66 +318,268 @@ export class ClaudeProvider extends BaseProvider {
     return this.bucket("7d_sonnet_quota");
   }
 
-  private async getCredentials(): Promise<string | null> {
+  private async resolveAccessToken(): Promise<TokenResolution> {
+    let stored: StoredCredentials | null = null;
     try {
-      let token: string | null = null;
-      if (platform() === "darwin" && this.useKeychain) {
-        token = await this.getCredentialsFromKeychain();
-        if (token && this.invalidTokens.has(token)) {
-          token = await this.getCredentialsFromFile();
-        }
-      } else {
-        token = await this.getCredentialsFromFile();
-      }
+      stored = await this.loadStoredCredentials();
+    } catch {
+      stored = null;
+    }
 
-      if (token && this.invalidTokens.has(token)) {
-        return null;
+    const oauth = this.pickFreshest(stored?.oauth ?? null, this.memoryOauth);
+    if (!oauth?.accessToken) {
+      return { error: "missing" };
+    }
+
+    const expired = this.isExpired(oauth) || this.invalidTokens.has(oauth.accessToken);
+    if (!expired) {
+      return { token: oauth.accessToken };
+    }
+
+    const refreshed = await this.refreshCredentials();
+    if (refreshed?.accessToken && !this.invalidTokens.has(refreshed.accessToken)) {
+      return { token: refreshed.accessToken };
+    }
+
+    // Refresh failed or is gated; a stale token that merely hit the expiry leeway may still work,
+    // so only give up when we know the token is dead.
+    if (!this.invalidTokens.has(oauth.accessToken)) {
+      return { token: oauth.accessToken };
+    }
+    return { error: "expired" };
+  }
+
+  /** Prefers whichever credential set expires later: the CLI may have refreshed since our in-memory refresh. */
+  private pickFreshest(stored: ClaudeOAuthData | null, memory: ClaudeOAuthData | null): ClaudeOAuthData | null {
+    if (!memory?.accessToken) return stored;
+    if (!stored?.accessToken) return memory;
+    if ((stored.expiresAt ?? 0) >= (memory.expiresAt ?? 0)) {
+      this.memoryOauth = null;
+      return stored;
+    }
+    return memory;
+  }
+
+  private isExpired(oauth: ClaudeOAuthData): boolean {
+    if (!oauth.expiresAt) {
+      return false;
+    }
+    return Date.now() >= oauth.expiresAt - this.TOKEN_EXPIRY_LEEWAY_MS;
+  }
+
+  private async refreshCredentials(): Promise<ClaudeOAuthData | null> {
+    if (!this.autoRefresh) {
+      return null;
+    }
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
+    }
+    this.refreshInFlight = this.refreshCredentialsCore().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async refreshCredentialsCore(): Promise<ClaudeOAuthData | null> {
+    if (Date.now() < this.refreshCooldownUntil) {
+      this.debug("Token refresh in cooldown after previous failure");
+      return null;
+    }
+
+    this.credCache = null;
+    let stored: StoredCredentials | null = null;
+    try {
+      stored = await this.loadStoredCredentials();
+    } catch {
+      stored = null;
+    }
+
+    const refreshToken = this.memoryOauth?.refreshToken || stored?.oauth?.refreshToken;
+    if (!refreshToken) {
+      this.debug("No refresh token available");
+      return null;
+    }
+    if (this.deadRefreshTokens.has(refreshToken)) {
+      this.debug("Refresh token previously rejected, waiting for re-login");
+      return null;
+    }
+
+    this.debug("Refreshing OAuth token");
+    let response: Response | null = null;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        response = await fetch(this.OAUTH_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: refreshToken,
+            client_id: this.OAUTH_CLIENT_ID,
+          }).toString(),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
       }
-      return token;
+    } catch {
+      response = null;
+    }
+
+    if (!response) {
+      this.refreshCooldownUntil = Date.now() + this.REFRESH_COOLDOWN_MS;
+      this.debug("Token refresh request failed (network)");
+      return null;
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      // invalid_grant is terminal: the refresh token itself is revoked, only a re-login helps.
+      if (body.includes("invalid_grant")) {
+        this.deadRefreshTokens.add(refreshToken);
+        this.logger.error(`[${this.name}] OAuth refresh rejected (invalid_grant), re-login required`);
+      } else {
+        this.refreshCooldownUntil = Date.now() + this.REFRESH_COOLDOWN_MS;
+        this.logger.error(`[${this.name}] OAuth refresh failed with status ${response.status}`);
+      }
+      return null;
+    }
+
+    let data: { access_token?: string; refresh_token?: string; expires_in?: number };
+    try {
+      data = (await response.json()) as typeof data;
+    } catch {
+      this.refreshCooldownUntil = Date.now() + this.REFRESH_COOLDOWN_MS;
+      return null;
+    }
+    if (!data.access_token) {
+      this.refreshCooldownUntil = Date.now() + this.REFRESH_COOLDOWN_MS;
+      return null;
+    }
+
+    const oauth: ClaudeOAuthData = {
+      ...stored?.oauth,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || refreshToken,
+      expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
+    };
+    this.memoryOauth = oauth;
+    this.refreshCooldownUntil = 0;
+    this.debug("Token refresh successful");
+
+    // The endpoint may rotate the refresh token, so persist it where Claude Code reads it —
+    // otherwise the CLI could be left holding a revoked token.
+    if (stored) {
+      const persisted = await this.persistCredentials(stored, oauth);
+      if (persisted) {
+        this.memoryOauth = null;
+        this.credCache = null;
+      } else {
+        this.logger.error(`[${this.name}] Could not write refreshed token back to ${stored.source}, keeping it in memory`);
+      }
+    }
+    return oauth;
+  }
+
+  private async persistCredentials(stored: StoredCredentials, oauth: ClaudeOAuthData): Promise<boolean> {
+    const payload: ClaudeCredentials = {
+      ...stored.payload,
+      claudeAiOauth: { ...stored.payload.claudeAiOauth, ...oauth },
+    };
+    const json = JSON.stringify(payload);
+
+    if (stored.source === "keychain") {
+      try {
+        const account = this.readKeychainAccount() ?? (process.env.USER || process.env.LOGNAME || "");
+        execFileSync(
+          "security",
+          ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", account, "-w", json],
+          { stdio: ["pipe", "pipe", "pipe"] }
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    try {
+      await writeFile(this.credentialsPath, json, { mode: 0o600 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Reads the account attribute of the existing keychain item so the write-back updates it in place. */
+  private readKeychainAccount(): string | null {
+    try {
+      const output = execFileSync(
+        "security",
+        ["find-generic-password", "-s", KEYCHAIN_SERVICE],
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
+      );
+      const match = output.match(/"acct"<blob>="([^"]*)"/);
+      return match ? match[1] : null;
     } catch {
       return null;
     }
   }
 
-  private async getCredentialsFromKeychain(): Promise<string | null> {
-    if (this.credCache?.timestamp && Date.now() - this.credCache.timestamp < this.KEYCHAIN_CACHE_TTL_MS) {
-      if (this.credCache.token && !this.invalidTokens.has(this.credCache.token)) {
-        return this.credCache.token;
-      }
+  private async loadStoredCredentials(): Promise<StoredCredentials | null> {
+    if (platform() === "darwin" && this.useKeychain) {
+      return await this.loadFromKeychain();
+    }
+    return await this.loadFromFile();
+  }
+
+  private async loadFromKeychain(): Promise<StoredCredentials | null> {
+    if (
+      this.credCache?.timestamp &&
+      Date.now() - this.credCache.timestamp < this.KEYCHAIN_CACHE_TTL_MS &&
+      this.credCache.stored?.source === "keychain"
+    ) {
+      return this.credCache.stored;
     }
 
     try {
       const result = execFileSync(
         "security",
-        ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
+        ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
       ).trim();
 
-      const creds: ClaudeCredentials = JSON.parse(result);
-      const token = creds?.claudeAiOauth?.accessToken ?? null;
-      this.credCache = { token, timestamp: Date.now() };
-      return token;
+      const payload: ClaudeCredentials = JSON.parse(result);
+      if (!payload?.claudeAiOauth?.accessToken) {
+        // Claude Code stores MCP server OAuth state in the same item; its presence alone
+        // does not mean the user is logged in.
+        this.debug("Keychain item has no claudeAiOauth token (MCP OAuth state only?)");
+      }
+      const stored: StoredCredentials = { oauth: payload?.claudeAiOauth ?? {}, payload: payload ?? {}, source: "keychain" };
+      this.credCache = { stored, timestamp: Date.now() };
+      return stored;
     } catch {
-      return await this.getCredentialsFromFile();
+      return await this.loadFromFile();
     }
   }
 
-  private async getCredentialsFromFile(): Promise<string | null> {
+  private async loadFromFile(): Promise<StoredCredentials | null> {
     try {
       const fileStat = await stat(this.credentialsPath);
       const mtime = fileStat.mtimeMs;
 
-      if (this.credCache?.mtime === mtime) {
-        if (this.credCache.token && !this.invalidTokens.has(this.credCache.token)) {
-          return this.credCache.token;
-        }
+      if (this.credCache?.mtime === mtime && this.credCache.stored?.source === "file") {
+        return this.credCache.stored;
       }
 
       const content = await readFile(this.credentialsPath, "utf-8");
-      const creds: ClaudeCredentials = JSON.parse(content);
-      const token = creds?.claudeAiOauth?.accessToken ?? null;
-      this.credCache = { token, mtime };
-      return token;
+      const payload: ClaudeCredentials = JSON.parse(content);
+      const stored: StoredCredentials = { oauth: payload?.claudeAiOauth ?? {}, payload: payload ?? {}, source: "file" };
+      this.credCache = { stored, mtime };
+      return stored;
     } catch {
       return null;
     }
@@ -440,30 +685,5 @@ export class ClaudeProvider extends BaseProvider {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, ms));
-  }
-
-  private refreshTokenViaCLI(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const isWin = platform() === "win32";
-      const claudePath = isWin ? "claude" : join(homedir(), ".local", "bin", "claude");
-      const proc = spawn(claudePath, [], {
-        stdio: "ignore",
-        detached: !isWin,
-        shell: isWin,
-      });
-
-      proc.on("error", () => {
-        resolve(false);
-      });
-
-      setTimeout(() => {
-        try {
-          proc.kill();
-        } catch { }
-        resolve(true);
-      }, 10000);
-
-      proc.unref();
-    });
   }
 }
