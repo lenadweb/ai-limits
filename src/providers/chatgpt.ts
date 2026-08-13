@@ -12,20 +12,6 @@ interface CodexAuthData {
   };
 }
 
-interface CodexApiResponse {
-  plan_type: string;
-  rate_limit: {
-    primary_window?: {
-      used_percent: number;
-      reset_at: number;
-    } | null;
-    secondary_window?: {
-      used_percent: number;
-      reset_at: number;
-    } | null;
-  };
-}
-
 export class ChatGptProvider extends BaseProvider {
   readonly name = ProviderName.ChatGpt;
   private authPath: string;
@@ -81,7 +67,7 @@ export class ChatGptProvider extends BaseProvider {
         };
       }
 
-      const data = (await response.json()) as CodexApiResponse;
+      const data = (await response.json()) as ChatGptRawResponse;
 
       const primaryUsed = data.rate_limit.primary_window?.used_percent ?? null;
       const secondaryUsed = data.rate_limit.secondary_window?.used_percent ?? null;
@@ -109,6 +95,8 @@ export class ChatGptProvider extends BaseProvider {
       if (data.rate_limit.primary_window) {
         perModel["primary_window"] = {
           usagePercent: data.rate_limit.primary_window.used_percent,
+          windowSeconds: data.rate_limit.primary_window.limit_window_seconds,
+          resetAfterSeconds: data.rate_limit.primary_window.reset_after_seconds,
           resetTime: new Date(data.rate_limit.primary_window.reset_at * 1000).toISOString(),
           displayName: "Primary Window",
         };
@@ -126,6 +114,22 @@ export class ChatGptProvider extends BaseProvider {
         overallUsagePercent,
         overallResetTime,
         perModel,
+        ...(data.credits && {
+          credits: {
+            hasCredits: data.credits.has_credits,
+            unlimited: data.credits.unlimited,
+            overageLimitReached: data.credits.overage_limit_reached,
+            balance: data.credits.balance,
+            approxLocalMessages: data.credits.approx_local_messages ?? null,
+            approxCloudMessages: data.credits.approx_cloud_messages ?? null,
+          },
+        }),
+        ...(data.rate_limit_reset_credits && {
+          rateLimitResetCredits: {
+            availableCount: data.rate_limit_reset_credits.available_count,
+            applicableAvailableCount: data.rate_limit_reset_credits.applicable_available_count,
+          },
+        }),
       };
 
       this.debug(`Usage fetched: ${overallUsagePercent ?? "n/a"}% used`);

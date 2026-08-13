@@ -124,9 +124,23 @@ interface StandardUsageResult {
     usagePercent: number | null; // null for informational rows (e.g. OpenRouter spend)
     remainingAmount?: number;
     limitAmount?: number;
+    windowSeconds?: number;
+    resetAfterSeconds?: number;
     resetTime?: string | null;
     displayName?: string;
   }>;
+  credits?: {
+    hasCredits: boolean;
+    unlimited: boolean;
+    overageLimitReached: boolean;
+    balance: string | null;
+    approxLocalMessages: number[] | null;
+    approxCloudMessages: number[] | null;
+  };
+  rateLimitResetCredits?: {
+    availableCount: number;
+    applicableAvailableCount: number;
+  };
   error?: { code: "AUTH" | "API" | "CONN" | number; message: string };
 }
 ```

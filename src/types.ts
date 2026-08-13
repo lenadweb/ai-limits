@@ -20,8 +20,24 @@ export interface ModelUsage {
   usagePercent: number | null;
   remainingAmount?: number;
   limitAmount?: number;
+  windowSeconds?: number;
+  resetAfterSeconds?: number;
   resetTime?: string | null;
   displayName?: string;
+}
+
+export interface CreditUsage {
+  hasCredits: boolean;
+  unlimited: boolean;
+  overageLimitReached: boolean;
+  balance: string | null;
+  approxLocalMessages: number[] | null;
+  approxCloudMessages: number[] | null;
+}
+
+export interface RateLimitResetCredits {
+  availableCount: number;
+  applicableAvailableCount: number;
 }
 
 export interface StandardUsageResult {
@@ -29,6 +45,8 @@ export interface StandardUsageResult {
   overallUsagePercent: number | null;
   overallResetTime: string | null;
   perModel?: Record<string, ModelUsage>;
+  credits?: CreditUsage;
+  rateLimitResetCredits?: RateLimitResetCredits;
   error?: ProviderError;
 }
 
@@ -136,13 +154,29 @@ export interface ChatGptRawResponse {
   rate_limit: {
     primary_window?: {
       used_percent: number;
+      limit_window_seconds?: number;
+      reset_after_seconds?: number;
       reset_at: number;
     } | null;
     secondary_window?: {
       used_percent: number;
+      limit_window_seconds?: number;
+      reset_after_seconds?: number;
       reset_at: number;
     } | null;
   };
+  credits?: {
+    has_credits: boolean;
+    unlimited: boolean;
+    overage_limit_reached: boolean;
+    balance: string | null;
+    approx_local_messages: number[];
+    approx_cloud_messages: number[];
+  } | null;
+  rate_limit_reset_credits?: {
+    available_count: number;
+    applicable_available_count: number;
+  } | null;
 }
 
 export interface GeminiRawResponse {

@@ -4,7 +4,7 @@ import { Command } from "commander";
 import pc from "picocolors";
 import Table from "cli-table3";
 import { LimitsClient } from "@/index.js";
-import { ProviderName, StandardUsageResult, ModelUsage, Logger } from "@/types.js";
+import { ProviderName, StandardUsageResult, ModelUsage, CreditUsage, Logger } from "@/types.js";
 import { AntigravityProvider } from "@/providers/antigravity.js";
 
 const client = new LimitsClient();
@@ -56,6 +56,23 @@ function formatUsage(percent: number | null): string {
   return `${bar} ${valStr}`;
 }
 
+function formatCredits(credits: CreditUsage): string {
+  if (credits.unlimited) return pc.green("Unlimited");
+  if (!credits.hasCredits) return pc.dim("No credits");
+  if (credits.balance !== null) return pc.green(credits.balance);
+  return pc.dim("Available");
+}
+
+function formatWindowDisplayName(modelId: string, info: ModelUsage): string {
+  const name = info.displayName || modelId;
+  const seconds = info.windowSeconds;
+  if (!seconds || seconds <= 0) return name;
+
+  if (seconds % 86400 === 0) return `${name} (${seconds / 86400}d)`;
+  if (seconds % 3600 === 0) return `${name} (${seconds / 3600}h)`;
+  return `${name} (${Math.ceil(seconds / 60)}m)`;
+}
+
 function renderResult(result: StandardUsageResult, logger: Logger) {
   if (result.error) {
     return;
@@ -64,6 +81,17 @@ function renderResult(result: StandardUsageResult, logger: Logger) {
   logger.log(pc.bold(pc.cyan(`\nProvider: ${result.provider.toUpperCase()}`)));
   logger.log(`Overall Usage: ${formatUsage(result.overallUsagePercent)}`);
   logger.log(`Next Reset:    ${formatResetTime(result.overallResetTime)}`);
+
+  if (result.credits) {
+    logger.log(`Credits:       ${formatCredits(result.credits)}`);
+  }
+  if (result.rateLimitResetCredits) {
+    const { availableCount, applicableAvailableCount } = result.rateLimitResetCredits;
+    const details = availableCount === applicableAvailableCount
+      ? `${availableCount} available`
+      : `${applicableAvailableCount} applicable, ${availableCount} total`;
+    logger.log(`Reset Credits: ${details}`);
+  }
 
   if (result.perModel && Object.keys(result.perModel).length > 0) {
     const table = new Table({
@@ -74,7 +102,7 @@ function renderResult(result: StandardUsageResult, logger: Logger) {
     const entries = Object.entries(result.perModel) as [string, ModelUsage][];
     for (const [modelId, info] of entries) {
       table.push([
-        info.displayName || modelId,
+        formatWindowDisplayName(modelId, info),
         formatUsage(info.usagePercent),
         formatResetTime(info.resetTime || null),
       ]);
