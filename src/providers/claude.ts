@@ -3,7 +3,7 @@ import { readFile, stat, writeFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ClaudeOptions, ClaudeRawResponse } from "@/types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ClaudeOptions, ClaudeRawLimit, ClaudeRawResponse } from "@/types.js";
 
 interface ClaudeOAuthData {
   accessToken?: string;
@@ -29,22 +29,117 @@ type TokenResolution =
   | { token: string }
   | { error: "missing" | "expired" };
 
-interface ClaudeApiResponse {
-  five_hour?: {
-    utilization: number;
-    resets_at: string;
-  } | null;
-  seven_day?: {
-    utilization: number;
-    resets_at: string;
-  } | null;
-  seven_day_sonnet?: {
-    utilization: number;
-    resets_at: string;
-  } | null;
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
+
+const SESSION_BUCKET = "5h_quota";
+const WEEKLY_BUCKET = "7d_quota";
+const SONNET_MODEL = "Sonnet";
+
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-const KEYCHAIN_SERVICE = "Claude Code-credentials";
+export function scopedBucketKey(model: string): string {
+  return `7d_${slugify(model)}_quota`;
+}
+
+function mapLimit(limit: ClaudeRawLimit, debug: (message: string) => void): { key: string; usage: ModelUsage } | null {
+  if (limit.percent == null) {
+    return null;
+  }
+
+  const usage: ModelUsage = {
+    usagePercent: limit.percent,
+    resetTime: limit.resets_at ?? null,
+  };
+
+  if (limit.kind === "session") {
+    return { key: SESSION_BUCKET, usage: { ...usage, displayName: "5-Hour Quota" } };
+  }
+  if (limit.kind === "weekly_all") {
+    return { key: WEEKLY_BUCKET, usage: { ...usage, displayName: "7-Day Quota" } };
+  }
+  if (limit.kind !== "weekly_scoped") {
+    debug(`Ignoring limit of unknown kind "${limit.kind}"`);
+    return null;
+  }
+
+  const model = limit.scope?.model?.display_name?.trim() || undefined;
+  const surface = limit.scope?.surface?.trim() || undefined;
+  const name = model ?? surface;
+  if (!name || !slugify(name)) {
+    debug("Ignoring scoped limit without a model or surface name");
+    return null;
+  }
+
+  return {
+    key: scopedBucketKey(name),
+    usage: {
+      ...usage,
+      displayName: `7-Day ${name} Quota`,
+      scope: { model, modelId: limit.scope?.model?.id ?? undefined, surface },
+    },
+  };
+}
+
+function mostConstrained(buckets: Array<ModelUsage | undefined>): ModelUsage | null {
+  let worst: ModelUsage | null = null;
+  for (const bucket of buckets) {
+    if (!bucket || bucket.usagePercent == null) continue;
+    if (!worst || bucket.usagePercent > (worst.usagePercent ?? -1)) {
+      worst = bucket;
+    }
+  }
+  return worst;
+}
+
+export function mapClaudeUsage(data: ClaudeRawResponse, debug: (message: string) => void = () => {}): StandardUsageResult {
+  const perModel: Record<string, ModelUsage> = {};
+
+  if (data.five_hour) {
+    perModel[SESSION_BUCKET] = {
+      usagePercent: data.five_hour.utilization,
+      resetTime: data.five_hour.resets_at,
+      displayName: "5-Hour Quota",
+    };
+  }
+  if (data.seven_day) {
+    perModel[WEEKLY_BUCKET] = {
+      usagePercent: data.seven_day.utilization,
+      resetTime: data.seven_day.resets_at,
+      displayName: "7-Day Quota",
+    };
+  }
+  if (data.seven_day_sonnet) {
+    perModel[scopedBucketKey(SONNET_MODEL)] = {
+      usagePercent: data.seven_day_sonnet.utilization,
+      resetTime: data.seven_day_sonnet.resets_at,
+      displayName: `7-Day ${SONNET_MODEL} Quota`,
+      scope: { model: SONNET_MODEL },
+    };
+  }
+
+  const fromLimits = new Set<string>();
+  for (const limit of data.limits ?? []) {
+    const mapped = mapLimit(limit, debug);
+    if (!mapped) continue;
+    if (fromLimits.has(mapped.key)) {
+      debug(`Duplicate limit bucket "${mapped.key}", keeping the first one`);
+      continue;
+    }
+    fromLimits.add(mapped.key);
+    perModel[mapped.key] = mapped.usage;
+  }
+
+  const overall = mostConstrained([perModel[SESSION_BUCKET], perModel[WEEKLY_BUCKET]]);
+
+  return {
+    provider: ProviderName.Claude,
+    overallUsagePercent: overall?.usagePercent ?? null,
+    overallResetTime: overall?.resetTime ?? null,
+    perModel,
+  };
+}
 
 export class ClaudeProvider extends BaseProvider {
   readonly name = ProviderName.Claude;
@@ -157,8 +252,8 @@ export class ClaudeProvider extends BaseProvider {
         };
       }
 
-      const data = (await response.json()) as ClaudeApiResponse;
-      const usage = this.mapResponseToResult(data);
+      const data = (await response.json()) as ClaudeRawResponse;
+      const usage = mapClaudeUsage(data, (message) => this.debug(message));
       this.consecutive429Count = 0;
       this.cooldownUntil = 0;
       this.debug(`Usage fetched: ${usage.overallUsagePercent ?? "n/a"}% used`);
@@ -226,8 +321,8 @@ export class ClaudeProvider extends BaseProvider {
         };
       }
 
-      const data = (await response.json()) as ClaudeApiResponse;
-      const usage = this.mapResponseToResult(data);
+      const data = (await response.json()) as ClaudeRawResponse;
+      const usage = mapClaudeUsage(data, (message) => this.debug(message));
       this.consecutive429Count = 0;
       this.cooldownUntil = 0;
       return usage;
@@ -239,56 +334,6 @@ export class ClaudeProvider extends BaseProvider {
         error: { code: "API", message: "API Error" },
       };
     }
-  }
-
-  private mapResponseToResult(data: ClaudeApiResponse): StandardUsageResult {
-    const fiveHourUsage = data.five_hour?.utilization ?? null;
-    const sevenDayUsage = data.seven_day?.utilization ?? null;
-    let overallUsagePercent = null;
-    if (fiveHourUsage !== null && sevenDayUsage !== null) {
-      overallUsagePercent = Math.max(fiveHourUsage, sevenDayUsage);
-    } else if (fiveHourUsage !== null) {
-      overallUsagePercent = fiveHourUsage;
-    } else if (sevenDayUsage !== null) {
-      overallUsagePercent = sevenDayUsage;
-    }
-
-    const fiveHourReset = data.five_hour?.resets_at ?? null;
-    const sevenDayReset = data.seven_day?.resets_at ?? null;
-    let overallResetTime = fiveHourReset || sevenDayReset || null;
-    if (fiveHourUsage !== null && sevenDayUsage !== null) {
-      overallResetTime = fiveHourUsage >= sevenDayUsage ? fiveHourReset : sevenDayReset;
-    }
-
-    const perModel: Record<string, any> = {};
-    if (data.five_hour) {
-      perModel["5h_quota"] = {
-        usagePercent: data.five_hour.utilization,
-        resetTime: data.five_hour.resets_at,
-        displayName: "5-Hour Quota",
-      };
-    }
-    if (data.seven_day) {
-      perModel["7d_quota"] = {
-        usagePercent: data.seven_day.utilization,
-        resetTime: data.seven_day.resets_at,
-        displayName: "7-Day Quota",
-      };
-    }
-    if (data.seven_day_sonnet) {
-      perModel["7d_sonnet_quota"] = {
-        usagePercent: data.seven_day_sonnet.utilization,
-        resetTime: data.seven_day_sonnet.resets_at,
-        displayName: "7-Day Sonnet Quota",
-      };
-    }
-
-    return {
-      provider: this.name,
-      overallUsagePercent,
-      overallResetTime,
-      perModel,
-    };
   }
 
   async fetchRawUsage(): Promise<ClaudeRawResponse> {
@@ -305,17 +350,32 @@ export class ClaudeProvider extends BaseProvider {
 
   /** Usage of the rolling 5-hour quota window. */
   getFiveHourUsage(): Promise<ModelUsage | null> {
-    return this.bucket("5h_quota");
+    return this.bucket(SESSION_BUCKET);
   }
 
   /** Usage of the rolling 7-day quota window. */
   getSevenDayUsage(): Promise<ModelUsage | null> {
-    return this.bucket("7d_quota");
+    return this.bucket(WEEKLY_BUCKET);
   }
 
   /** Usage of the Sonnet-specific 7-day quota window. */
   getSonnetWeeklyUsage(): Promise<ModelUsage | null> {
-    return this.bucket("7d_sonnet_quota");
+    return this.getScopedWeeklyUsage(SONNET_MODEL);
+  }
+
+  getScopedWeeklyUsage(model: string): Promise<ModelUsage | null> {
+    return this.bucket(scopedBucketKey(model));
+  }
+
+  async listScopedWeeklyUsage(): Promise<Record<string, ModelUsage>> {
+    const usage = await this.fetchUsage();
+    const scoped: Record<string, ModelUsage> = {};
+    for (const [key, bucket] of Object.entries(usage.perModel ?? {})) {
+      if (bucket.scope) {
+        scoped[key] = bucket;
+      }
+    }
+    return scoped;
   }
 
   private async resolveAccessToken(): Promise<TokenResolution> {

@@ -16,8 +16,9 @@ Next Reset:    in 2h 14m
 ┌──────────────────────────────┬────────────────────┬────────────────────┐
 │ Model/Bucket                 │ Usage              │ Reset Time         │
 ├──────────────────────────────┼────────────────────┼────────────────────┤
-│ 5-hour window                │ ████████░░ 78%     │ in 2h 14m          │
-│ 7-day window                 │ ███░░░░░░░ 31%      │ in 5d 3h           │
+│ 5-Hour Quota                 │ ████████░░ 78%     │ in 2h 14m          │
+│ 7-Day Quota                  │ ███░░░░░░░ 31%     │ in 5d 3h           │
+│ 7-Day Fable Quota            │ █████░░░░░ 52%     │ in 5d 3h           │
 └──────────────────────────────┴────────────────────┴────────────────────┘
 ```
 
@@ -128,6 +129,9 @@ interface StandardUsageResult {
     resetAfterSeconds?: number;
     resetTime?: string | null;
     displayName?: string;
+    // Set when the window covers only part of the account, e.g. Claude's weekly
+    // limit for a single model: { model: "Fable", modelId?: string, surface?: string }
+    scope?: { model?: string; modelId?: string; surface?: string };
   }>;
   credits?: {
     hasCredits: boolean;
@@ -171,8 +175,10 @@ import { LimitsClient, ProviderName, ClaudeProvider, OpenRouterProvider } from "
 const client = new LimitsClient();
 
 const claude = client.getProvider<ClaudeProvider>(ProviderName.Claude);
-await claude.getFiveHourUsage();   // ModelUsage | null
-await claude.getSevenDayUsage();   // ModelUsage | null
+await claude.getFiveHourUsage();          // ModelUsage | null
+await claude.getSevenDayUsage();          // ModelUsage | null
+await claude.getScopedWeeklyUsage("Fable"); // ModelUsage | null — the weekly limit for one model
+await claude.listScopedWeeklyUsage();     // Record<bucketKey, ModelUsage> — every model-scoped limit
 
 const or = client.getProvider<OpenRouterProvider>(ProviderName.OpenRouter);
 await or.getLimit();         // OpenRouterLimit | null — { amount, interval, used, remaining, usagePercent, resetTime }
@@ -182,7 +188,7 @@ await or.fetchDetails();     // OpenRouterUsage — structured limit + spend
 
 | Provider | Methods |
 | --- | --- |
-| Claude | `getFiveHourUsage()`, `getSevenDayUsage()`, `getSonnetWeeklyUsage()` |
+| Claude | `getFiveHourUsage()`, `getSevenDayUsage()`, `getSonnetWeeklyUsage()`, `getScopedWeeklyUsage(model)`, `listScopedWeeklyUsage()` |
 | ChatGPT | `getPrimaryWindow()`, `getSecondaryWindow()` |
 | MiniMax | `getDailyUsage()`, `getWeeklyUsage()` |
 | Gemini | `getModelUsage(modelId)`, `getModels()` |
@@ -248,6 +254,7 @@ const client = new LimitsClient({
 
 This tool never asks for your passwords and never sends your tokens anywhere except to the matching provider's official API.
 
+- Claude: besides the session and account-wide weekly windows, Anthropic also reports weekly limits scoped to a single model, e.g. `Fable`. Which models an account reports is decided by Anthropic and changes as new ones ship, so they cannot be enumerated up front: each one becomes its own bucket, keyed `7d_<model>_quota` and carrying `scope.model`. Read them with `listScopedWeeklyUsage()`, or filter `perModel` on `scope`. `overallUsagePercent` stays account-wide, since a scoped limit caps one model and cannot speak for the account. Accounts still on the older response shape keep exactly the buckets they had.
 - Claude: reads the token from the macOS Keychain entry `Claude Code-credentials`, or from `~/.claude/.credentials.json`. Set `useKeychain: false` to force the file. When the OAuth token expires it is refreshed automatically through Anthropic's token endpoint and written back to the same credential store, so Claude Code stays logged in. Set `autoRefresh: false` to disable this.
 - ChatGPT / Codex: reads the access token and account id from `~/.codex/auth.json`.
 - Gemini: reads Google OAuth credentials from `~/.gemini/oauth_creds.json`.

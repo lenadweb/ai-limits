@@ -16,6 +16,12 @@ export interface ProviderError {
   message: string;
 }
 
+export interface UsageScope {
+  model?: string;
+  modelId?: string;
+  surface?: string;
+}
+
 export interface ModelUsage {
   usagePercent: number | null;
   remainingAmount?: number;
@@ -24,6 +30,7 @@ export interface ModelUsage {
   resetAfterSeconds?: number;
   resetTime?: string | null;
   displayName?: string;
+  scope?: UsageScope;
 }
 
 export interface CreditUsage {
@@ -134,6 +141,23 @@ export interface AntigravityRawResponse {
   models?: Record<string, AntigravityRawModelInfo>;
 }
 
+export type ClaudeLimitKind = "session" | "weekly_all" | "weekly_scoped";
+
+export interface ClaudeRawLimitScope {
+  model?: { id?: string | null; display_name?: string | null } | null;
+  surface?: string | null;
+}
+
+export interface ClaudeRawLimit {
+  kind?: ClaudeLimitKind | (string & {});
+  group?: string | null;
+  percent?: number | null;
+  severity?: string | null;
+  resets_at?: string | null;
+  scope?: ClaudeRawLimitScope | null;
+  is_active?: boolean;
+}
+
 export interface ClaudeRawResponse {
   five_hour?: {
     utilization: number;
@@ -147,6 +171,7 @@ export interface ClaudeRawResponse {
     utilization: number;
     resets_at: string;
   } | null;
+  limits?: ClaudeRawLimit[] | null;
 }
 
 export interface ChatGptRawResponse {
