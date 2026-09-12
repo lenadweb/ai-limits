@@ -1,6 +1,6 @@
 {
   "name": "@lenadweb/ai-limits",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "CLI and TypeScript SDK to access AI agent limits and usage stats across multiple providers.",
   "type": "module",
   "main": "./dist/index.js",
