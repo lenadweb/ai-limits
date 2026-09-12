@@ -615,8 +615,14 @@ export class ClaudeProvider extends BaseProvider {
       const payload: ClaudeCredentials = JSON.parse(result);
       if (!payload?.claudeAiOauth?.accessToken) {
         // Claude Code stores MCP server OAuth state in the same item; its presence alone
-        // does not mean the user is logged in.
-        this.debug("Keychain item has no claudeAiOauth token (MCP OAuth state only?)");
+        // does not mean the user is logged in. Recent versions keep the OAuth tokens in
+        // ~/.claude/.credentials.json and leave an empty claudeAiOauth block behind here,
+        // so try the credentials file before treating the user as logged out.
+        this.debug("Keychain item has no claudeAiOauth token (MCP OAuth state only?), trying credentials file");
+        const fromFile = await this.loadFromFile();
+        if (fromFile?.oauth?.accessToken) {
+          return fromFile;
+        }
       }
       const stored: StoredCredentials = { oauth: payload?.claudeAiOauth ?? {}, payload: payload ?? {}, source: "keychain" };
       this.credCache = { stored, timestamp: Date.now() };
