@@ -1,21 +1,43 @@
 import { OAuth2Client, CodeChallengeMethod } from "google-auth-library";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import * as http from "http";
 import { AddressInfo } from "net";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { promisify } from "util";
 import { BaseProvider } from "@/providers/base.js";
-import { StandardUsageResult, ModelUsage, ProviderName, ProviderErrorCode, AntigravityOptions, AntigravityRawResponse } from "@/types.js";
+import { StandardUsageResult, ModelUsage, ProviderName, ProviderError, AntigravityOptions, AntigravityRawResponse } from "@/types.js";
 
-const CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com/v1internal";
+const execFileAsync = promisify(execFile);
+
 const OAUTH_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 const OAUTH_CLIENT_SECRET = "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";
 const OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
 ];
+
+const AGY_BINARY = os.platform() === "win32" ? "agy.exe" : "agy";
+const AGY_USAGE_ARGS = ["--print", "/usage", "--print-timeout", "20s", "--output-format", "json"];
+const AGY_TIMEOUT_MS = 30000;
+
+const WINDOW_SECONDS: Record<string, number> = {
+  weekly: 7 * 24 * 60 * 60,
+};
+
+type AgyFailure = "missing" | "timeout" | "failed";
+
+type AgyResult =
+  | { data: AntigravityRawResponse }
+  | { error: AgyFailure; detail: string };
+
+const AGY_ERRORS: Record<AgyFailure, ProviderError> = {
+  missing: { code: "AUTH", message: "agy Not Found" },
+  timeout: { code: "CONN", message: "Timeout" },
+  failed: { code: "API", message: "API Error" },
+};
 
 interface StoredToken {
   access_token?: string;
@@ -27,29 +49,61 @@ interface StoredToken {
   email?: string;
 }
 
-interface ModelInfo {
-  displayName?: string;
-  quotaInfo?: {
-    remainingFraction?: number;
-    resetTime?: string;
-    isExhausted?: boolean;
+function parseAgyOutput(stdout: string): AgyResult {
+  let output: any;
+  try {
+    output = JSON.parse(stdout);
+  } catch {
+    return { error: "failed", detail: "agy returned non-JSON output" };
+  }
+  if (output?.status !== "SUCCESS") {
+    return { error: "failed", detail: `agy returned status ${output?.status ?? "unknown"}` };
+  }
+  const data = output.command?.data;
+  if (!data || !Array.isArray(data.groups)) {
+    return { error: "failed", detail: "agy output has no usage groups" };
+  }
+  return { data };
+}
+
+export function mapAntigravityUsage(data: AntigravityRawResponse, debug: (message: string) => void = () => {}): StandardUsageResult {
+  const perModel: Record<string, ModelUsage> = {};
+  let worst: ModelUsage | null = null;
+
+  for (const group of data.groups ?? []) {
+    const groupName = group.name?.trim() || "Antigravity";
+    for (const bucket of group.buckets ?? []) {
+      if (!bucket.id || typeof bucket.remaining_fraction !== "number") {
+        debug(`Ignoring bucket without id or remaining fraction in "${groupName}"`);
+        continue;
+      }
+      if (perModel[bucket.id]) {
+        debug(`Duplicate bucket "${bucket.id}", keeping the first one`);
+        continue;
+      }
+
+      const windowSeconds = bucket.window ? WINDOW_SECONDS[bucket.window] : undefined;
+      const limitName = bucket.name?.replace(/\s*remaining$/i, "").trim() || bucket.window || bucket.id;
+      const usage: ModelUsage = {
+        usagePercent: Math.min(Math.max(Math.round((1 - bucket.remaining_fraction) * 100), 0), 100),
+        resetTime: bucket.reset_time ?? null,
+        displayName: windowSeconds ? groupName : `${groupName} ${limitName}`,
+        windowSeconds,
+      };
+      perModel[bucket.id] = usage;
+
+      if (!worst || (usage.usagePercent ?? -1) > (worst.usagePercent ?? -1)) {
+        worst = usage;
+      }
+    }
+  }
+
+  return {
+    provider: ProviderName.Antigravity,
+    overallUsagePercent: worst?.usagePercent ?? null,
+    overallResetTime: worst?.resetTime ?? null,
+    perModel,
   };
-  [key: string]: any;
-}
-
-interface FetchAvailableModelsResponse {
-  models?: Record<string, ModelInfo>;
-}
-
-interface RetrieveUserQuotaBucket {
-  modelId?: string;
-  remainingFraction?: number;
-  resetTime?: string;
-  [key: string]: any;
-}
-
-interface RetrieveUserQuotaResponse {
-  buckets?: RetrieveUserQuotaBucket[];
 }
 
 export class AntigravityProvider extends BaseProvider {
@@ -58,6 +112,7 @@ export class AntigravityProvider extends BaseProvider {
   private tokenPath: string;
   private clientId: string | undefined;
   private clientSecret: string | undefined;
+  private binaryPath: string | undefined;
   private isInitialized = false;
   private email: string | null = null;
   private pendingLogin: {
@@ -74,6 +129,7 @@ export class AntigravityProvider extends BaseProvider {
     this.tokenPath = options?.tokenPath || path.join(os.homedir(), ".limits-streamdeck", "antigravity_oauth.json");
     this.clientId = options?.clientId || process.env.ANTIGRAVITY_CLIENT_ID || OAUTH_CLIENT_ID;
     this.clientSecret = options?.clientSecret || process.env.ANTIGRAVITY_CLIENT_SECRET || OAUTH_CLIENT_SECRET;
+    this.binaryPath = options?.binaryPath || process.env.AGY_BIN || undefined;
     this.client = new OAuth2Client({
       clientId: this.clientId,
       clientSecret: this.clientSecret,
@@ -209,156 +265,69 @@ export class AntigravityProvider extends BaseProvider {
   }
 
   protected async loadUsage(): Promise<StandardUsageResult> {
-    this.debug("Fetching usage from Antigravity API");
-    try {
-      await this.initialize();
-    } catch (err: any) {
-      this.logger.error(`[${this.name}] Initialization failed: ${err?.message || err}`);
+    this.debug("Fetching usage from agy CLI");
+    const result = await this.runAgy();
+    if ("error" in result) {
+      if (result.error === "missing") {
+        this.debug(`${result.detail}, returning auth error`);
+      } else {
+        this.logger.error(`[${this.name}] Fetch failed: ${result.detail}`);
+      }
       return {
         provider: this.name,
         overallUsagePercent: null,
         overallResetTime: null,
-        error: { code: "AUTH", message: "Auth Required" },
+        error: AGY_ERRORS[result.error],
       };
     }
 
-    const perModel: Record<string, ModelUsage> = {};
-    const fractions: number[] = [];
-    let overallResetTime: string | null = null;
-
-    try {
-      const quota = await this.apiPost<RetrieveUserQuotaResponse>("retrieveUserQuota", {});
-      const modelLabels = await this.fetchModelDisplayNames();
-
-      for (const bucket of quota.buckets || []) {
-        const modelId = bucket.modelId;
-        const remainingFraction = bucket.remainingFraction;
-        if (!modelId || typeof remainingFraction !== "number") continue;
-
-        const usage = Math.min(Math.max(Math.round((1 - remainingFraction) * 100), 0), 100);
-        perModel[modelId] = {
-          usagePercent: usage,
-          resetTime: bucket.resetTime || null,
-          displayName: modelLabels[modelId] ?? modelId,
-        };
-        fractions.push(remainingFraction);
-      }
-
-      if (fractions.length > 0) {
-        let mostConstrainedFraction = Infinity;
-        for (const bucket of quota.buckets || []) {
-          const f = bucket.remainingFraction;
-          if (typeof f !== "number") continue;
-          if (f < mostConstrainedFraction) {
-            mostConstrainedFraction = f;
-            overallResetTime = bucket.resetTime ?? null;
-          }
-        }
-      }
-    } catch (err: any) {
-      this.debug(`retrieveUserQuota failed (${err?.message || err}), falling back to fetchAvailableModels`);
-      try {
-        const data = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
-        for (const [modelId, info] of Object.entries(data.models || {})) {
-          const qi = info.quotaInfo;
-          if (!qi || typeof qi.remainingFraction !== "number") continue;
-
-          const usage = Math.min(Math.max(Math.round((1 - qi.remainingFraction) * 100), 0), 100);
-          perModel[modelId] = {
-            usagePercent: usage,
-            resetTime: qi.resetTime || null,
-            displayName: info.displayName ?? modelId,
-          };
-          fractions.push(qi.remainingFraction);
-        }
-
-        if (fractions.length > 0) {
-          let mostConstrainedFraction = Infinity;
-          for (const info of Object.values(data.models || {})) {
-            const f = info.quotaInfo?.remainingFraction;
-            if (typeof f !== "number") continue;
-            if (f < mostConstrainedFraction) {
-              mostConstrainedFraction = f;
-              overallResetTime = info.quotaInfo?.resetTime ?? null;
-            }
-          }
-        }
-      } catch (fallbackErr: any) {
-        const msg = String(fallbackErr?.message || fallbackErr);
-        this.logger.error(`[${this.name}] Fetch failed: ${msg}`);
-        let code: ProviderErrorCode = "API";
-        let message = "API Error";
-        if (msg.includes("401") || msg.includes("403") || msg.includes("token")) {
-          code = "AUTH";
-          message = "Auth Required";
-        } else if (msg.includes("429")) {
-          code = 429;
-          message = "Rate Limit";
-        } else if (msg.includes("fetch") || msg.includes("CONN") || msg.includes("Network")) {
-          code = "CONN";
-          message = "Conn Error";
-        }
-        return {
-          provider: this.name,
-          overallUsagePercent: null,
-          overallResetTime: null,
-          error: { code, message },
-        };
-      }
-    }
-
-    let overallUsagePercent = null;
-    if (fractions.length > 0) {
-      const lowest = Math.min(...fractions);
-      overallUsagePercent = Math.min(Math.max(Math.round((1 - lowest) * 100), 0), 100);
-    }
-
-    this.debug(`Usage fetched: ${overallUsagePercent ?? "n/a"}% used`);
-    return {
-      provider: this.name,
-      overallUsagePercent,
-      overallResetTime,
-      perModel,
-    };
+    const usage = mapAntigravityUsage(result.data, (message) => this.debug(message));
+    this.debug(`Usage fetched: ${usage.overallUsagePercent ?? "n/a"}% used`);
+    return usage;
   }
 
   async fetchRawUsage(): Promise<AntigravityRawResponse> {
-    await this.initialize();
-    try {
-      const buckets = await this.apiPost<RetrieveUserQuotaResponse>("retrieveUserQuota", {});
-      const models = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
-      return {
-        buckets: buckets.buckets,
-        models: models.models,
-      };
-    } catch {
-      const models = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
-      return {
-        models: models.models,
-      };
+    const result = await this.runAgy();
+    if ("error" in result) {
+      throw new Error(result.detail);
     }
+    return result.data;
   }
 
-  /** Usage of a specific model bucket, or `null` if the model is not reported. */
+  /** Usage of a quota bucket reported by `agy /usage` (e.g. `gemini-weekly`, `3p-weekly`), or `null` if absent. */
   getModelUsage(modelId: string): Promise<ModelUsage | null> {
     return this.bucket(modelId);
   }
 
-  /** Model ids reported in the latest usage snapshot. */
+  /** Bucket ids reported in the latest usage snapshot. */
   getModels(): Promise<string[]> {
     return this.listBuckets();
   }
 
-  private async fetchModelDisplayNames(): Promise<Record<string, string>> {
-    const labels: Record<string, string> = {};
-    try {
-      const data = await this.apiPost<FetchAvailableModelsResponse>("fetchAvailableModels", {});
-      for (const [id, info] of Object.entries(data.models || {})) {
-        labels[id] = info.displayName || id;
+  private agyCandidates(): string[] {
+    if (this.binaryPath) return [this.binaryPath];
+    return [AGY_BINARY, path.join(os.homedir(), ".local", "bin", AGY_BINARY)];
+  }
+
+  private async runAgy(): Promise<AgyResult> {
+    for (const binary of this.agyCandidates()) {
+      let stdout: string;
+      try {
+        ({ stdout } = await execFileAsync(binary, AGY_USAGE_ARGS, { timeout: AGY_TIMEOUT_MS, windowsHide: true }));
+      } catch (err: any) {
+        if (err?.code === "ENOENT") {
+          this.debug(`agy not found at ${binary}`);
+          continue;
+        }
+        if (err?.killed) {
+          return { error: "timeout", detail: `agy timed out after ${AGY_TIMEOUT_MS}ms` };
+        }
+        const stderr = typeof err?.stderr === "string" ? err.stderr.trim() : "";
+        return { error: "failed", detail: stderr || err?.message || String(err) };
       }
-    } catch {
+      return parseAgyOutput(stdout);
     }
-    return labels;
+    return { error: "missing", detail: "agy CLI not found" };
   }
 
   private async initialize(): Promise<void> {
@@ -370,56 +339,6 @@ export class AntigravityProvider extends BaseProvider {
     this.client.setCredentials(tokens);
     this.email = tokens.email ?? null;
     this.isInitialized = true;
-  }
-
-  private async apiPost<T>(method: string, body: Record<string, unknown>): Promise<T> {
-    const token = await this.getAccessToken();
-    const url = `${CODE_ASSIST_ENDPOINT}:${method}`;
-
-    const send = async (bearer: string): Promise<Response> => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        return await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${bearer}`,
-            "Content-Type": "application/json",
-            "User-Agent": "antigravity",
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-    };
-
-    let response = await send(token);
-
-    if (response.status === 401 || response.status === 403) {
-      this.isInitialized = false;
-      await this.initialize();
-      const newToken = await this.getAccessToken();
-      response = await send(newToken);
-    }
-
-    if (!response.ok) {
-      throw new Error(`Antigravity API ${method} returned ${response.status}`);
-    }
-    return (await response.json()) as T;
-  }
-
-  private async getAccessToken(): Promise<string> {
-    const { token } = await this.client.getAccessToken();
-    if (!token) {
-      throw new Error("Failed to obtain access token");
-    }
-    const creds = this.client.credentials;
-    if (creds.access_token) {
-      await this.persistTokens(creds, this.email);
-    }
-    return token;
   }
 
   private async exchangeCode(code: string, codeVerifier: string, redirectUri: string): Promise<StoredToken> {

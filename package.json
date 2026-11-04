@@ -28,7 +28,7 @@
     "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
     "dev": "tsup src/index.ts src/cli.ts --format esm --dts --watch",
     "pretest": "npm run build",
-    "test": "node --test test/",
+    "test": "node --test",
     "prepublishOnly": "npm run build"
   },
   "repository": {

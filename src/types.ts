@@ -89,6 +89,8 @@ export interface AntigravityOptions extends CacheOptions {
   tokenPath?: string;
   clientId?: string;
   clientSecret?: string;
+  /** Path to the `agy` CLI. Defaults to `AGY_BIN`, then `agy` on `PATH`, then `~/.local/bin/agy`. */
+  binaryPath?: string;
 }
 
 export interface ClaudeOptions extends CacheOptions {
@@ -121,24 +123,25 @@ export interface LimitsClientOptions {
   openrouter?: ApiKeyOptions;
 }
 
-export interface AntigravityRawModelInfo {
-  displayName?: string;
-  quotaInfo?: {
-    remainingFraction?: number;
-    resetTime?: string;
-    isExhausted?: boolean;
-  };
-  [key: string]: any;
+export interface AntigravityRawBucket {
+  id?: string;
+  name?: string;
+  description?: string;
+  window?: "weekly" | (string & {});
+  remaining_fraction?: number;
+  reset_time?: string;
 }
 
+export interface AntigravityRawGroup {
+  name?: string;
+  description?: string;
+  buckets?: AntigravityRawBucket[];
+}
+
+/** The `command.data` payload of `agy --print /usage --output-format json`. */
 export interface AntigravityRawResponse {
-  buckets?: Array<{
-    modelId?: string;
-    remainingFraction?: number;
-    resetTime?: string;
-    [key: string]: any;
-  }>;
-  models?: Record<string, AntigravityRawModelInfo>;
+  description?: string;
+  groups?: AntigravityRawGroup[];
 }
 
 export type ClaudeLimitKind = "session" | "weekly_all" | "weekly_scoped";

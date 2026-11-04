@@ -1,6 +1,6 @@
 import { ProviderName, LimitsClientOptions, StandardUsageResult, UsageSummary, Logger } from "@/types.js";
 import { resolveLogger } from "@/utils.js";
-import { AntigravityProvider } from "@/providers/antigravity.js";
+import { AntigravityProvider, mapAntigravityUsage } from "@/providers/antigravity.js";
 import { ClaudeProvider, mapClaudeUsage, scopedBucketKey as claudeScopedBucketKey } from "@/providers/claude.js";
 import { ChatGptProvider } from "@/providers/chatgpt.js";
 import { GeminiProvider } from "@/providers/gemini.js";
@@ -11,7 +11,7 @@ import { BaseProvider } from "@/providers/base.js";
 export * from "@/types.js";
 export * from "@/utils.js";
 export { BaseProvider };
-export { AntigravityProvider };
+export { AntigravityProvider, mapAntigravityUsage };
 export { ClaudeProvider, mapClaudeUsage, claudeScopedBucketKey };
 export { ChatGptProvider };
 export { GeminiProvider };

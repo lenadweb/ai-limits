@@ -29,11 +29,11 @@ Next Reset:    in 2h 14m
 | Claude | Anthropic / Claude Code CLI | macOS Keychain or `~/.claude/.credentials.json` |
 | ChatGPT / Codex | ChatGPT backend API | `~/.codex/auth.json` |
 | Gemini | Google Cloud Code Assist | `~/.gemini/oauth_creds.json` |
-| Antigravity | Google Cloud Code Assist | OAuth login built into this CLI |
+| Antigravity | Antigravity CLI (`agy --print /usage`) | `agy` CLI signed in to your Google account |
 | MiniMax | MiniMax OpenPlatform API | `MINIMAX_API_KEY` environment variable |
 | OpenRouter | OpenRouter API key endpoint | `OPENROUTER_API_KEY` environment variable |
 
-For Claude, ChatGPT and Gemini the credentials are created by the providers' own CLIs and IDE plugins. If those tools already work on your machine, this one works too. Antigravity is the only provider that needs an explicit login through this CLI.
+The credentials are created by the providers' own CLIs and IDE plugins. If those tools already work on your machine, this one works too.
 
 OpenRouter has no plan-based quota. Instead it reports the per-key spend limit (e.g. `$3 / month`): if the key has a limit set, you get an overall usage bar and reset time; if the key is unlimited, the spend is shown for information only.
 
@@ -74,7 +74,7 @@ Each provider is printed with an overall usage bar, the next reset time, and a p
 
 ### Antigravity login
 
-Antigravity uses Google OAuth. Authenticate once and the tokens are cached locally:
+Antigravity usage is read from the `agy` CLI, so signing in to `agy` is all that is needed. The OAuth login below is kept for backward compatibility and is not used to read usage:
 
 ```bash
 # Open the browser and complete the OAuth flow
@@ -226,6 +226,7 @@ import { LimitsClient } from "@lenadweb/ai-limits";
 
 const client = new LimitsClient({
   antigravity: {
+    binaryPath: "/custom/path/to/agy",
     tokenPath: "/custom/path/antigravity_oauth.json",
     clientId: process.env.ANTIGRAVITY_CLIENT_ID,
     clientSecret: process.env.ANTIGRAVITY_CLIENT_SECRET,
@@ -258,7 +259,7 @@ This tool never asks for your passwords and never sends your tokens anywhere exc
 - Claude: reads the token from the macOS Keychain entry `Claude Code-credentials`, or from `~/.claude/.credentials.json`. Set `useKeychain: false` to force the file. When the OAuth token expires it is refreshed automatically through Anthropic's token endpoint and written back to the same credential store, so Claude Code stays logged in. Set `autoRefresh: false` to disable this.
 - ChatGPT / Codex: reads the access token and account id from `~/.codex/auth.json`.
 - Gemini: reads Google OAuth credentials from `~/.gemini/oauth_creds.json`.
-- Antigravity: runs a local OAuth flow and caches tokens in `~/.limits-streamdeck/antigravity_oauth.json`. Tokens are refreshed automatically.
+- Antigravity: runs `agy --print /usage --output-format json` and reads the plan-level quota pools it reports (e.g. Gemini Models, Claude and GPT models). Each pool becomes a bucket keyed by the id `agy` reports, such as `gemini-weekly` or `3p-weekly`, and `overallUsagePercent` is the most used pool. The binary is taken from the `binaryPath` option, the `AGY_BIN` environment variable, `agy` on `PATH`, or `~/.local/bin/agy`. If `agy` is missing or fails, an error is returned instead of usage numbers.
 - MiniMax: uses the `MINIMAX_API_KEY` environment variable, or the `apiKey` option.
 - OpenRouter: uses the `OPENROUTER_API_KEY` environment variable, or the `apiKey` option. Calls `GET /api/v1/key` to read the key's spend limit and usage.
 
