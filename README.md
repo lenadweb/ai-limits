@@ -31,11 +31,14 @@ Next Reset:    in 2h 14m
 | Gemini | Google Cloud Code Assist | `~/.gemini/oauth_creds.json` |
 | Antigravity | Antigravity CLI (`agy --print /usage`) | `agy` CLI signed in to your Google account |
 | MiniMax | MiniMax OpenPlatform API | `MINIMAX_API_KEY` environment variable |
+| OpenCode | OpenCode Console API (Go + Zen budgets) | `OPENCODE_API_KEY` environment variable |
 | OpenRouter | OpenRouter API key endpoint | `OPENROUTER_API_KEY` environment variable |
 
 The credentials are created by the providers' own CLIs and IDE plugins. If those tools already work on your machine, this one works too.
 
 OpenRouter has no plan-based quota. Instead it reports the per-key spend limit (e.g. `$3 / month`): if the key has a limit set, you get an overall usage bar and reset time; if the key is unlimited, the spend is shown for information only.
+
+OpenCode is read with a Console API key. Go, Go Plus and Go Teams report the 5-hour, weekly and monthly allowance of the signed-in member, while Zen workspaces report their monthly dollar budgets and prepaid balance. Both kinds of data are merged into one provider, so a workspace using Go with Extra Usage shows the Go windows, the budgets and the balance together.
 
 ## Installation
 
@@ -66,6 +69,7 @@ ai-limits show claude
 ai-limits show chatgpt
 ai-limits show gemini
 ai-limits show minimax
+ai-limits show opencode
 ai-limits show openrouter
 ai-limits show antigravity
 ```
@@ -122,7 +126,7 @@ interface StandardUsageResult {
   overallUsagePercent: number | null;
   overallResetTime: string | null; // ISO timestamp
   perModel?: Record<string, {
-    usagePercent: number | null; // null for informational rows (e.g. OpenRouter spend)
+    usagePercent: number | null; // null for informational rows (e.g. OpenRouter spend or OpenCode balance)
     remainingAmount?: number;
     limitAmount?: number;
     windowSeconds?: number;
@@ -170,7 +174,7 @@ When a provider fails, `fetchUsage` resolves with the `error` field set instead 
 Instead of iterating `perModel` with string keys, each provider exposes named, typed methods for its specific windows. Get the typed instance with `getProvider<T>(name)`. All accessors share the same cached fetch, so calling several in a row makes a single request.
 
 ```typescript
-import { LimitsClient, ProviderName, ClaudeProvider, OpenRouterProvider } from "@lenadweb/ai-limits";
+import { LimitsClient, ProviderName, ClaudeProvider, OpenCodeProvider, OpenRouterProvider } from "@lenadweb/ai-limits";
 
 const client = new LimitsClient();
 
@@ -184,6 +188,13 @@ const or = client.getProvider<OpenRouterProvider>(ProviderName.OpenRouter);
 await or.getLimit();         // OpenRouterLimit | null — { amount, interval, used, remaining, usagePercent, resetTime }
 await or.getMonthlySpend();  // number | null
 await or.fetchDetails();     // OpenRouterUsage — structured limit + spend
+
+const oc = client.getProvider<OpenCodeProvider>(ProviderName.OpenCode);
+await oc.getRollingUsage();  // ModelUsage | null — Go 5-hour window
+await oc.getWeeklyUsage();   // ModelUsage | null
+await oc.getMonthlyUsage();  // ModelUsage | null
+await oc.getBudgets();       // ModelUsage[] — every Console budget bucket
+await oc.getBalance();       // number | null — Zen prepaid balance in USD
 ```
 
 | Provider | Methods |
@@ -191,6 +202,7 @@ await or.fetchDetails();     // OpenRouterUsage — structured limit + spend
 | Claude | `getFiveHourUsage()`, `getSevenDayUsage()`, `getSonnetWeeklyUsage()`, `getScopedWeeklyUsage(model)`, `listScopedWeeklyUsage()` |
 | ChatGPT | `getPrimaryWindow()`, `getSecondaryWindow()` |
 | MiniMax | `getDailyUsage()`, `getWeeklyUsage()` |
+| OpenCode | `getRollingUsage()`, `getWeeklyUsage()`, `getMonthlyUsage()`, `getBudgets()`, `getBudgetUsage(ruleID)`, `getBalance()` |
 | Gemini | `getModelUsage(modelId)`, `getModels()` |
 | Antigravity | `getModelUsage(modelId)`, `getModels()` |
 | OpenRouter | `getLimit()`, `getTotalSpend()`, `getDailySpend()`, `getWeeklySpend()`, `getMonthlySpend()`, `fetchDetails()` |
@@ -245,6 +257,11 @@ const client = new LimitsClient({
   minimax: {
     apiKey: process.env.MINIMAX_API_KEY,
   },
+  opencode: {
+    apiKey: process.env.OPENCODE_API_KEY,
+    // Optional workspace override; usually unnecessary with an API key.
+    workspaceId: process.env.OPENCODE_WORKSPACE_ID,
+  },
   openrouter: {
     apiKey: process.env.OPENROUTER_API_KEY,
   },
@@ -261,6 +278,7 @@ This tool never asks for your passwords and never sends your tokens anywhere exc
 - Gemini: reads Google OAuth credentials from `~/.gemini/oauth_creds.json`.
 - Antigravity: runs `agy --print /usage --output-format json` and reads the plan-level quota pools it reports (e.g. Gemini Models, Claude and GPT models). Each pool becomes a bucket keyed by the id `agy` reports, such as `gemini-weekly` or `3p-weekly`, and `overallUsagePercent` is the most used pool. The binary is taken from the `binaryPath` option, the `AGY_BIN` environment variable, `agy` on `PATH`, or `~/.local/bin/agy`. If `agy` is missing or fails, an error is returned instead of usage numbers.
 - MiniMax: uses the `MINIMAX_API_KEY` environment variable, or the `apiKey` option.
+- OpenCode: uses the `OPENCODE_API_KEY` environment variable, or the `apiKey` option. Calls `GET /zen/go/v1/usage` for the Go allowance and `GET /console/api/policies/current-budgets` for Console budgets, then adds the Zen prepaid balance from `GET /console/api/billing/status` when that endpoint is readable with the key. A workspace without Go keeps its budgets; a workspace without budgets keeps its Go windows.
 - OpenRouter: uses the `OPENROUTER_API_KEY` environment variable, or the `apiKey` option. Calls `GET /api/v1/key` to read the key's spend limit and usage.
 
 For Gemini and Antigravity the package uses the same public OAuth client identifiers that the official Google CLIs ship with. These are public desktop clients protected by PKCE, not private secrets. You can swap in your own client through the configuration options above.

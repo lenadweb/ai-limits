@@ -5,6 +5,7 @@ import { ClaudeProvider, mapClaudeUsage, scopedBucketKey as claudeScopedBucketKe
 import { ChatGptProvider } from "@/providers/chatgpt.js";
 import { GeminiProvider } from "@/providers/gemini.js";
 import { MiniMaxProvider } from "@/providers/minimax.js";
+import { OpenCodeProvider, mapOpenCodeUsage } from "@/providers/opencode.js";
 import { OpenRouterProvider } from "@/providers/openrouter.js";
 import { BaseProvider } from "@/providers/base.js";
 
@@ -16,6 +17,7 @@ export { ClaudeProvider, mapClaudeUsage, claudeScopedBucketKey };
 export { ChatGptProvider };
 export { GeminiProvider };
 export { MiniMaxProvider };
+export { OpenCodeProvider, mapOpenCodeUsage };
 export { OpenRouterProvider };
 
 export class LimitsClient {
@@ -33,6 +35,7 @@ export class LimitsClient {
       [ProviderName.ChatGpt]: new ChatGptProvider(withCacheDefault(options?.chatgpt)),
       [ProviderName.Gemini]: new GeminiProvider(withCacheDefault(options?.gemini)),
       [ProviderName.MiniMax]: new MiniMaxProvider(withCacheDefault(options?.minimax)),
+      [ProviderName.OpenCode]: new OpenCodeProvider(withCacheDefault(options?.opencode)),
       [ProviderName.OpenRouter]: new OpenRouterProvider(withCacheDefault(options?.openrouter)),
     };
     for (const provider of Object.values(this.providers)) {

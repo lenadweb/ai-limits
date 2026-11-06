@@ -4,6 +4,7 @@ export enum ProviderName {
   ChatGpt = "chatgpt",
   Gemini = "gemini",
   MiniMax = "minimax",
+  OpenCode = "opencode",
   OpenRouter = "openrouter",
 }
 
@@ -111,6 +112,11 @@ export interface GeminiOptions extends CacheOptions {
   clientSecret?: string;
 }
 
+export interface OpenCodeOptions extends ApiKeyOptions {
+  /** Optional workspace ID (`wrk_...`) sent as the OpenCode workspace header. Usually unnecessary with an API key. */
+  workspaceId?: string;
+}
+
 export interface LimitsClientOptions {
   logger?: LoggerOption;
   /** Default usage cache TTL (ms) applied to every provider. Per-provider `cacheTtlMs` overrides it. Set to 0 to disable. */
@@ -120,6 +126,7 @@ export interface LimitsClientOptions {
   chatgpt?: ChatGptOptions;
   gemini?: GeminiOptions;
   minimax?: ApiKeyOptions;
+  opencode?: OpenCodeOptions;
   openrouter?: ApiKeyOptions;
 }
 
@@ -236,6 +243,58 @@ export interface MiniMaxRawResponse {
     current_weekly_remaining_percent?: number;
   }>;
   base_resp: { status_code: number; status_msg: string };
+}
+
+export interface OpenCodeGoMeter {
+  status?: "ok" | "rate-limited" | (string & {});
+  percent?: number;
+  resetsAt?: string;
+}
+
+export interface OpenCodeGoRawResponse {
+  usage?: {
+    rolling?: OpenCodeGoMeter;
+    weekly?: OpenCodeGoMeter;
+    monthly?: OpenCodeGoMeter;
+  };
+}
+
+export interface OpenCodeBudgetModel {
+  providerID?: string;
+  modelID?: string;
+  name?: string;
+  spentDollars?: number;
+}
+
+export interface OpenCodeBudget {
+  ruleID: string;
+  limitDollars: number;
+  spentDollars: number;
+  scope?: "each" | "combined" | (string & {});
+  per?: "set" | "model" | (string & {});
+  coverage?: "all" | "models" | (string & {});
+  models?: OpenCodeBudgetModel[];
+  vendors?: Array<{ id?: string; name?: string }>;
+  inputPriceAtLeast?: number;
+  picked?: boolean;
+  shared?: boolean;
+  resetsAt?: string;
+}
+
+export interface OpenCodeBillingStatus {
+  billingMode?: string;
+  mode?: string;
+  balanceMicroCents?: number | string;
+  creditLimitMicroCents?: number | string;
+  availableMicroCents?: number | string;
+  canPurchaseCredits?: boolean;
+  canEnableAutoRecharge?: boolean;
+}
+
+export interface OpenCodeRawResponse {
+  go: OpenCodeGoRawResponse | null;
+  budgets: OpenCodeBudget[] | null;
+  billing: OpenCodeBillingStatus | null;
 }
 
 export interface OpenRouterRawResponse {
