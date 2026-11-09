@@ -22,6 +22,14 @@ const OAUTH_SCOPES = [
 const AGY_BINARY = os.platform() === "win32" ? "agy.exe" : "agy";
 const AGY_USAGE_ARGS = ["--print", "/usage", "--print-timeout", "20s", "--output-format", "json"];
 const AGY_TIMEOUT_MS = 30000;
+/**
+ * Read-only usage polls must not start agy's background self-updater. On Windows it is spawned
+ * with a new console, which `windowsHide` cannot reach, so every poll that falls due for an
+ * update check (one every 30 minutes at a 15-minute poll) opens a visible terminal window.
+ * Interactive `agy` sessions keep updating themselves; only these child processes opt out.
+ * The documented value is "true"; agy ignores "1".
+ */
+const AGY_NO_AUTO_UPDATE = { AGY_CLI_DISABLE_AUTO_UPDATE: "true" };
 
 const WINDOW_SECONDS: Record<string, number> = {
   weekly: 7 * 24 * 60 * 60,
@@ -313,7 +321,11 @@ export class AntigravityProvider extends BaseProvider {
     for (const binary of this.agyCandidates()) {
       let stdout: string;
       try {
-        ({ stdout } = await execFileAsync(binary, AGY_USAGE_ARGS, { timeout: AGY_TIMEOUT_MS, windowsHide: true }));
+        ({ stdout } = await execFileAsync(binary, AGY_USAGE_ARGS, {
+          timeout: AGY_TIMEOUT_MS,
+          windowsHide: true,
+          env: { ...process.env, ...AGY_NO_AUTO_UPDATE },
+        }));
       } catch (err: any) {
         if (err?.code === "ENOENT") {
           this.debug(`agy not found at ${binary}`);
