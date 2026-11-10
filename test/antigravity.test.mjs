@@ -136,6 +136,14 @@ test("AntigravityProvider reads usage from agy", posixOnly, async () => {
   assert.deepEqual(await provider.fetchRawUsage(), RAW);
 });
 
+test("AntigravityProvider runs agy with its background auto-updater disabled", posixOnly, async () => {
+  const bin = fakeAgy(`[ "$AGY_CLI_DISABLE_AUTO_UPDATE" = "true" ] || exit 9\ncat <<'JSON'\n${SUCCESS_OUTPUT}\nJSON`);
+
+  const usage = await providerWith(bin).fetchUsage();
+  assert.equal(usage.error, undefined);
+  assert.equal(usage.overallUsagePercent, 51);
+});
+
 test("AntigravityProvider reports a missing agy binary as an auth error", async () => {
   const provider = providerWith(join(tmpdir(), "ai-limits-missing", "agy"));
 
